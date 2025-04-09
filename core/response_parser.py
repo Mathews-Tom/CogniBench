@@ -2,12 +2,21 @@
 # Version: 0.1 (Phase 1 - Initial Criteria)
 
 import json
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 
-# Define the expected keys for the initial Phase 1 evaluation
-EXPECTED_CRITERIA_PHASE1 = ["Problem Understanding", "Results/Formulae"]
+# Define the expected keys for the full L1 rubric evaluation (Phase 2)
+EXPECTED_CRITERIA_FULL_L1 = [
+    "Problem Understanding",
+    "Assumptions",
+    "Logical Implications",
+    "Results/Formulae",
+    "Rigor and Completeness",
+]
 
-def parse_judge_response(raw_response_content: str, expected_criteria: List[str] = EXPECTED_CRITERIA_PHASE1) -> Dict[str, Any]:
+
+def parse_judge_response(
+    raw_response_content: str, expected_criteria: List[str] = EXPECTED_CRITERIA_FULL_L1
+) -> Dict[str, Any]:
     """
     Parses the raw string response from the Judge LLM, expecting JSON format.
     Validates the basic structure based on the expected criteria for the current phase.
@@ -25,10 +34,10 @@ def parse_judge_response(raw_response_content: str, expected_criteria: List[str]
     """
     try:
         # Attempt to find JSON block if the LLM included extra text (common issue)
-        json_start = raw_response_content.find('{')
-        json_end = raw_response_content.rfind('}')
+        json_start = raw_response_content.find("{")
+        json_end = raw_response_content.rfind("}")
         if json_start != -1 and json_end != -1 and json_end > json_start:
-            json_string = raw_response_content[json_start:json_end+1]
+            json_string = raw_response_content[json_start : json_end + 1]
         else:
             # Assume the whole string is JSON if no clear block found
             json_string = raw_response_content.strip()
@@ -49,13 +58,19 @@ def parse_judge_response(raw_response_content: str, expected_criteria: List[str]
         # Check for expected criteria keys and their structure
         for criterion in expected_criteria:
             if criterion not in evaluation_content:
-                return {"error": f"Missing expected criterion in 'evaluation': '{criterion}'."}
+                return {
+                    "error": f"Missing expected criterion in 'evaluation': '{criterion}'."
+                }
             if not isinstance(evaluation_content[criterion], dict):
-                 return {"error": f"Value for criterion '{criterion}' is not a JSON object."}
+                return {
+                    "error": f"Value for criterion '{criterion}' is not a JSON object."
+                }
             if "score" not in evaluation_content[criterion]:
-                 return {"error": f"Missing 'score' key for criterion '{criterion}'."}
+                return {"error": f"Missing 'score' key for criterion '{criterion}'."}
             if "justification" not in evaluation_content[criterion]:
-                 return {"error": f"Missing 'justification' key for criterion '{criterion}'."}
+                return {
+                    "error": f"Missing 'justification' key for criterion '{criterion}'."
+                }
 
         # If all checks pass, return the parsed data
         return parsed_data
@@ -68,35 +83,35 @@ def parse_judge_response(raw_response_content: str, expected_criteria: List[str]
         print(f"An unexpected error occurred during parsing: {e}")
         return {"error": f"Unexpected parsing error: {e}"}
 
-# Example usage (for testing):
-# if __name__ == "__main__":
-#     valid_json_string = """
-#     ```json
-#     {
-#       "evaluation": {
-#         "Problem Understanding": {
-#           "score": "Yes",
-#           "justification": "Model correctly identified the integral."
-#         },
-#         "Results/Formulae": {
-#           "score": "No",
-#           "justification": "Final answer was incorrect."
-#         }
-#       }
-#     }
-#     ```
-#     """
-#     invalid_json_string = "{ evaluation: { Problem Understanding: ... }"
-#     missing_key_json = """{"evaluation": {"Problem Understanding": {"score": "Yes"}}}"""
-#
-#     print("--- Testing Valid JSON ---")
-#     parsed = parse_judge_response(valid_json_string)
-#     print(parsed)
-#
-#     print("\n--- Testing Invalid JSON ---")
-#     parsed = parse_judge_response(invalid_json_string)
-#     print(parsed)
-#
-#     print("\n--- Testing Missing Key JSON ---")
-#     parsed = parse_judge_response(missing_key_json)
-#     print(parsed)
+
+if __name__ == "__main__":
+    valid_json_string = """
+    ```json
+    {
+        "evaluation": {
+            "Problem Understanding": {
+            "score": "Yes",
+            "justification": "Model correctly identified the integral."
+            },
+            "Results/Formulae": {
+            "score": "No",
+            "justification": "Final answer was incorrect."
+            }
+        }
+    }
+    ```
+    """
+    invalid_json_string = "{ evaluation: { Problem Understanding: ... }"
+    missing_key_json = """{"evaluation": {"Problem Understanding": {"score": "Yes"}}}"""
+
+    print("--- Testing Valid JSON ---")
+    parsed = parse_judge_response(valid_json_string)
+    print(parsed)
+
+    print("\n--- Testing Invalid JSON ---")
+    parsed = parse_judge_response(invalid_json_string)
+    print(parsed)
+
+    print("\n--- Testing Missing Key JSON ---")
+    parsed = parse_judge_response(missing_key_json)
+    print(parsed)
