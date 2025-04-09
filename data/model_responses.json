@@ -22,5 +22,13 @@
     "response_text": "Using integration by parts with u=x^2, dv=sin(x)dx...\n... (different reasoning steps, maybe contains an error) ...\nFinal Answer: pi^2",
     "extracted_final_answer": null,
     "created_at": "2025-04-09T16:10:00Z"
+  },
+  {
+    "response_id": "resp_api_test_001_modelX",
+    "prompt_id": "math_prompt_api_test_001",
+    "model_name": "TestModelX",
+    "response_text": "The derivative is 3x^2.",
+    "extracted_final_answer": null,
+    "created_at": "2025-04-09T17:22:44.467104Z"
   }
 ]
