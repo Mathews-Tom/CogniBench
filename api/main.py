@@ -6,25 +6,22 @@ import os
 import uuid
 from datetime import datetime
 
+from core.workflow import \
+    run_evaluation_workflow  # Import the workflow function
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Security
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Security
 from fastapi.security import APIKeyHeader
 
 # Import schemas and potentially core functions if needed later
-from .schemas import (  # Added EvaluationResultData
-    EvaluationRequest,
-    EvaluationResponse,
-    EvaluationResultData,
-)
-
-# from core.workflow import run_evaluation_workflow # Not calling directly in this phase
+from .schemas import (EvaluationRequest,  # Added EvaluationResultData
+                      EvaluationResponse, EvaluationResultData)
 
 # --- Configuration (Should match workflow.py or be centralized) ---
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 PROMPTS_FILE = os.path.join(DATA_DIR, "prompts.json")
 MODEL_RESPONSES_FILE = os.path.join(DATA_DIR, "model_responses.json")
 IDEAL_RESPONSES_FILE = os.path.join(DATA_DIR, "ideal_responses.json")
-EVALUATIONS_FILE = os.path.join(DATA_DIR, "evaluations.json")  # Need to read this now
+EVALUATIONS_FILE = os.path.join(DATA_DIR, "evaluations.jsonl") # Updated to .jsonl
 
 # --- Security Setup ---
 load_dotenv() # Load .env file for API_KEY
@@ -66,49 +63,8 @@ async def health_check():
     return {"status": "ok"}
 
 
-# --- Helper function to append data to JSON list file ---
-def append_to_json_file(file_path: str, data_item: dict):
-    """Reads a JSON list file, appends an item, and writes it back."""
-    items = []
-    try:
-        # Ensure directory exists
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
-        if os.path.exists(file_path):
-            with open(file_path, "r", encoding="utf-8") as f:
-                try:
-                    items = json.load(f)
-                    if not isinstance(items, list):
-                        print(f"Warning: {file_path} is not a list. Overwriting.")
-                        items = []
-                except json.JSONDecodeError:
-                    print(
-                        f"Warning: Could not decode JSON from {file_path}. Overwriting."
-                    )
-                    items = []
-
-        # Check for duplicates based on ID (simple check)
-        id_key = list(data_item.keys())[0]  # Assume first key is the ID
-        if any(item.get(id_key) == data_item[id_key] for item in items):
-            print(
-                f"Warning: Item with ID {data_item[id_key]} already exists in {file_path}. Skipping append."
-            )
-            # Or raise an error / update existing? For now, just skip.
-            return
-
-        items.append(data_item)
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(items, f, indent=2, ensure_ascii=False)
-    except IOError as e:
-        print(f"API Error: File I/O error writing to {file_path}: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to write data to {os.path.basename(file_path)}",
-        )
-    except Exception as e:
-        print(f"API Error: Unexpected error writing to {file_path}: {e}")
-        raise HTTPException(
-            status_code=500, detail="An internal error occurred while saving data."
-        )
+# Removed append_to_json_file helper function as it's no longer needed.
+# Input data is assumed to exist, and output is handled by the workflow/output_writer.
 
 
 # --- API Endpoints ---
@@ -118,63 +74,43 @@ def append_to_json_file(file_path: str, data_item: dict):
     "/evaluate",
     response_model=EvaluationResponse,
     tags=["Evaluation"],
-    # dependencies=[Depends(get_api_key)], # Dependency added below
-) # Apply security dependency
-async def submit_evaluation(request: EvaluationRequest):
+    dependencies=[Depends(get_api_key)], # Apply security dependency
+)
+async def submit_evaluation(request: EvaluationRequest, background_tasks: BackgroundTasks):
     """
-    Accepts evaluation data, saves the input components (prompt, model response,
-    ideal response) to their respective JSON files.
-    Does NOT trigger the evaluation workflow directly in this phase.
-    Returns a unique evaluation ID for tracking (though processing is offline).
+    Accepts evaluation request data containing IDs for existing prompt, model response,
+    and ideal response. Triggers the evaluation workflow asynchronously in the background.
+    Returns a message indicating the evaluation has been queued.
     """
     print(
         f"Received evaluation request for prompt_id: {request.prompt_id}, response_id: {request.model_response_id}"
     )
 
-    # Generate a unique ID for this evaluation *run* attempt
-    # Note: This ID isn't directly linked to the workflow result yet in this phase
-    evaluation_run_id = f"eval_api_{uuid.uuid4()}"
+    # Generate a temporary ID for logging this specific API request/queueing action
+    api_request_id = f"api_req_{uuid.uuid4()}"
+    print(f"API Request {api_request_id}: Queuing evaluation workflow...")
 
     try:
-        # 1. Save Prompt Data
-        prompt_record = {
-            "prompt_id": request.prompt_id,
-            "content": request.prompt_content,
-            "metadata": request.prompt_metadata,
-            "created_at": datetime.utcnow().isoformat() + "Z",
-        }
-        append_to_json_file(PROMPTS_FILE, prompt_record)
+        # Schedule the workflow to run in the background
+        # Pass necessary IDs and parameters from the request
+        background_tasks.add_task(
+            run_evaluation_workflow,
+            prompt_id=request.prompt_id,
+            response_id=request.model_response_id,
+            ideal_response_id=request.ideal_response_id,
+            # Optional: Pass judge model/prompt version from request if needed
+            # judge_llm_model=request.judge_llm_model,
+            # judge_prompt_version=request.judge_prompt_version,
+        )
 
-        # 2. Save Model Response Data
-        model_response_record = {
-            "response_id": request.model_response_id,
-            "prompt_id": request.prompt_id,
-            "model_name": request.model_name,
-            "response_text": request.model_response_text,
-            "extracted_final_answer": None,  # Will be populated by offline workflow
-            "created_at": datetime.utcnow().isoformat() + "Z",
-        }
-        append_to_json_file(MODEL_RESPONSES_FILE, model_response_record)
-
-        # 3. Save Ideal Response Data
-        ideal_response_record = {
-            "ideal_response_id": request.ideal_response_id,
-            "prompt_id": request.prompt_id,
-            "response_text": request.ideal_response_text,
-            "correct_answer": request.correct_answer,
-            "created_at": datetime.utcnow().isoformat() + "Z",
-        }
-        append_to_json_file(IDEAL_RESPONSES_FILE, ideal_response_record)
-
-        # TODO: In a real system, this might enqueue a job (e.g., Celery, RQ, Kafka)
-        # which would then pick up the data using the IDs and run the workflow.
-        # For now, we just save the inputs.
-
-        print(f"Successfully saved input data for evaluation run {evaluation_run_id}")
+        print(f"API Request {api_request_id}: Evaluation workflow successfully queued.")
+        # Return immediately, indicating the task is queued
+        # Note: We don't have the final evaluation_id from the workflow yet.
+        # The client would need to poll the GET endpoint later if they need the result.
         return EvaluationResponse(
-            status="submitted",
-            message="Evaluation input data received and saved. Processing occurs offline.",
-            evaluation_id=evaluation_run_id,  # Return the API submission ID
+            status="queued",
+            message="Evaluation workflow successfully queued for background processing.",
+            evaluation_id=None, # No final ID available immediately
         )
 
     except HTTPException as http_exc:
@@ -192,7 +128,8 @@ async def submit_evaluation(request: EvaluationRequest):
     "/evaluate/{evaluation_id}",
     response_model=EvaluationResultData,
     tags=["Evaluation"],
-) # Apply security dependency
+    dependencies=[Depends(get_api_key)], # Apply security dependency
+)
 async def get_evaluation_result(evaluation_id: str):
     """
     Retrieves the results of a specific evaluation run by its ID.
@@ -203,41 +140,39 @@ async def get_evaluation_result(evaluation_id: str):
     if not os.path.exists(EVALUATIONS_FILE):
         raise HTTPException(status_code=404, detail=f"Evaluations data file not found.")
 
+    # Read JSONL file line by line
     try:
         with open(EVALUATIONS_FILE, "r", encoding="utf-8") as f:
-            evaluations = json.load(f)
-            if not isinstance(evaluations, list):
-                raise HTTPException(
-                    status_code=500, detail="Invalid evaluations data format."
-                )
-    except (json.JSONDecodeError, IOError) as e:
+            for line in f:
+                try:
+                    evaluation = json.loads(line)
+                    if evaluation.get("evaluation_id") == evaluation_id:
+                        # Found the evaluation, return it
+                        # FastAPI will validate against the response_model
+                        return evaluation
+                except json.JSONDecodeError:
+                    print(f"Warning: Skipping invalid JSON line in {EVALUATIONS_FILE}: {line.strip()}")
+                    continue # Skip malformed lines
+    except FileNotFoundError:
+         raise HTTPException(status_code=404, detail=f"Evaluations data file not found.")
+    except IOError as e:
         raise HTTPException(
-            status_code=500, detail=f"Error reading evaluations data: {e}"
+            status_code=500, detail=f"Error reading evaluations data file: {e}"
         )
+    except Exception as e: # Catch unexpected errors during processing
+         print(f"API Error: Unexpected error reading {EVALUATIONS_FILE}: {e}")
+         raise HTTPException(
+             status_code=500, detail="Internal server error reading evaluation data."
+         )
 
-    # Find the evaluation by ID
-    result_data = None
-    for evaluation in evaluations:
-        if evaluation.get("evaluation_id") == evaluation_id:
-            result_data = evaluation
-            break
+    # If loop completes without finding the ID
+    raise HTTPException(
+        status_code=404, detail=f"Evaluation ID '{evaluation_id}' not found."
+    )
 
-    if result_data is None:
-        raise HTTPException(
-            status_code=404, detail=f"Evaluation ID '{evaluation_id}' not found."
-        )
-
-    # Validate data against the Pydantic model (optional but good practice)
-    try:
-        # We return the raw dict here, FastAPI handles validation against response_model
-        return result_data
-    except Exception as e:  # Catch potential issues if data is severely malformed before FastAPI validation
-        print(
-            f"API Error: Unexpected issue processing data for evaluation {evaluation_id}: {e}"
-        )
-        raise HTTPException(
-            status_code=500, detail="Internal server error processing evaluation data."
-        )
+    # Removed redundant try/except block and validation logic here.
+    # The return statement above handles returning the found dict.
+    # FastAPI's response_model handles the validation.
 
 
 # To run the API locally (from the CogniBench directory):
