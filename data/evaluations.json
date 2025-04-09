@@ -1,0 +1,92 @@
+[
+  {
+    "evaluation_id": "eval_001",
+    "response_id": "resp_001_modelA",
+    "ideal_response_id": "ideal_resp_001",
+    "judge_llm_model": "GPT-4o-ExampleJudge",
+    "judge_prompt_template_version": "v1.0-initial",
+    "raw_judge_output": {
+      "reasoning": "The model correctly identified the need for integration by parts...",
+      "evaluation": {
+        "Problem Understanding": {
+          "score": "Yes",
+          "justification": "The model correctly identified the integral and limits."
+        },
+        "Assumptions": {
+          "score": "Yes",
+          "justification": "Standard assumptions for calculus were implicitly made."
+        },
+        "Logical Implications": {
+          "score": "Yes",
+          "justification": "The steps followed logically, applying integration by parts correctly."
+        },
+        "Results/Formulae": {
+          "score": "Yes",
+          "justification": "The final calculation matches the ideal response."
+        },
+        "Rigor and Completeness": {
+          "score": "Yes",
+          "justification": "All necessary steps were shown clearly."
+        }
+      }
+    },
+    "parsed_rubric_scores": {
+      "Problem Understanding": {
+        "score": "Yes",
+        "justification": "The model correctly identified the integral and limits."
+      },
+      "Assumptions": {
+        "score": "Yes",
+        "justification": "Standard assumptions for calculus were implicitly made."
+      },
+      "Logical Implications": {
+        "score": "Yes",
+        "justification": "The steps followed logically, applying integration by parts correctly."
+      },
+      "Results/Formulae": {
+        "score": "Yes",
+        "justification": "The final calculation matches the ideal response."
+      },
+      "Rigor and Completeness": {
+        "score": "Yes",
+        "justification": "All necessary steps were shown clearly."
+      }
+    },
+    "aggregated_score": "Pass",
+    "final_answer_verified": true,
+    "human_review_status": "Pending",
+    "human_reviewer_id": null,
+    "human_review_timestamp": null,
+    "human_corrected_scores": null,
+    "human_review_comments": null,
+    "created_at": "2025-04-09T17:00:00Z"
+  },
+  {
+    "evaluation_id": "eval_066d2e3c-0bb1-4f3b-bc73-4279e68c7a8e",
+    "response_id": "resp_001_modelA",
+    "ideal_response_id": "ideal_resp_001",
+    "judge_llm_model": "gpt-4o",
+    "judge_prompt_template_version": "v0.1-initial",
+    "raw_judge_output": {
+      "raw_content": "```json\n{\n  \"evaluation\": {\n    \"Problem Understanding\": {\n      \"score\": \"Yes\",\n      \"justification\": \"The model correctly interprets the problem by identifying the need to calculate the definite integral of x^2 * sin(x) from 0 to pi. It sets up the problem using integration by parts, which is the appropriate method for this type of integral, as indicated in the PROMPT.\"\n    },\n    \"Results/Formulae\": {\n      \"score\": \"Yes\",\n      \"justification\": \"The final answer provided by the model is pi^2 - 4, which matches the CORRECT ANSWER. The model's reasoning steps, although not fully detailed in the provided excerpt, lead to the correct final result, indicating that the calculations were performed correctly.\"\n    }\n  }\n}\n```"
+    },
+    "parsed_rubric_scores": {
+      "Problem Understanding": {
+        "score": "Yes",
+        "justification": "The model correctly interprets the problem by identifying the need to calculate the definite integral of x^2 * sin(x) from 0 to pi. It sets up the problem using integration by parts, which is the appropriate method for this type of integral, as indicated in the PROMPT."
+      },
+      "Results/Formulae": {
+        "score": "Yes",
+        "justification": "The final answer provided by the model is pi^2 - 4, which matches the CORRECT ANSWER. The model's reasoning steps, although not fully detailed in the provided excerpt, lead to the correct final result, indicating that the calculations were performed correctly."
+      }
+    },
+    "aggregated_score": null,
+    "final_answer_verified": null,
+    "human_review_status": "Pending",
+    "human_reviewer_id": null,
+    "human_review_timestamp": null,
+    "human_corrected_scores": null,
+    "human_review_comments": null,
+    "created_at": "2025-04-09T16:05:31.717998Z"
+  }
+]
