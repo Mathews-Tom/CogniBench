@@ -1,15 +1,16 @@
 # CogniBench - Output Writer
-# Version: 0.1 (Phase 1)
+# Version: 0.2 (Phase 4 - Include Review Flags)
 
 import json
 import os
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 # Define the path to the evaluations file relative to this script's location
 # Adjust if your project structure requires a different way to locate the data file
-DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
-EVALUATIONS_FILE_PATH = os.path.join(DATA_DIR, 'evaluations.json')
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+EVALUATIONS_FILE_PATH = os.path.join(DATA_DIR, "evaluations.json")
+
 
 def save_evaluation_result(
     evaluation_id: str,
@@ -19,8 +20,10 @@ def save_evaluation_result(
     judge_prompt_template_version: str,
     raw_judge_output: Dict[str, Any],
     parsed_rubric_scores: Dict[str, Any],
-    aggregated_score: Optional[str] = None, # Optional for Phase 1
-    final_answer_verified: Optional[bool] = None # Optional for Phase 1
+    aggregated_score: Optional[str] = None,
+    final_answer_verified: Optional[bool] = None,
+    needs_human_review: bool = False,  # New field from postprocessing
+    review_reasons: Optional[List[str]] = None,  # New field from postprocessing
 ) -> Dict[str, Any]:
     """
     Appends a new evaluation result to the evaluations JSON file.
@@ -33,8 +36,10 @@ def save_evaluation_result(
         judge_prompt_template_version: Version identifier for the prompt template used.
         raw_judge_output: The raw output received from the Judge LLM.
         parsed_rubric_scores: The parsed rubric scores (e.g., from response_parser).
-        aggregated_score: Overall score (e.g., Pass/Fail), populated later.
-        final_answer_verified: Boolean indicating final answer match, populated later.
+        aggregated_score: Overall score (e.g., "Pass", "Fail", "Partial").
+        final_answer_verified: Boolean indicating final answer match, or None if skipped.
+        needs_human_review: Boolean flag indicating if the evaluation requires human review.
+        review_reasons: List of strings explaining why human review is needed.
 
 
     Returns:
@@ -49,14 +54,18 @@ def save_evaluation_result(
         # Read existing evaluations
         evaluations = []
         if os.path.exists(EVALUATIONS_FILE_PATH):
-            with open(EVALUATIONS_FILE_PATH, 'r', encoding='utf-8') as f:
+            with open(EVALUATIONS_FILE_PATH, "r", encoding="utf-8") as f:
                 try:
                     evaluations = json.load(f)
                     if not isinstance(evaluations, list):
-                        print(f"Warning: {EVALUATIONS_FILE_PATH} does not contain a valid JSON list. Overwriting.")
+                        print(
+                            f"Warning: {EVALUATIONS_FILE_PATH} does not contain a valid JSON list. Overwriting."
+                        )
                         evaluations = []
                 except json.JSONDecodeError:
-                    print(f"Warning: Could not decode JSON from {EVALUATIONS_FILE_PATH}. Overwriting.")
+                    print(
+                        f"Warning: Could not decode JSON from {EVALUATIONS_FILE_PATH}. Overwriting."
+                    )
                     evaluations = []
 
         # Construct the new evaluation record
@@ -70,22 +79,28 @@ def save_evaluation_result(
             "parsed_rubric_scores": parsed_rubric_scores,
             "aggregated_score": aggregated_score,
             "final_answer_verified": final_answer_verified,
-            "human_review_status": "Pending",
+            "needs_human_review": needs_human_review,  # Store the flag
+            "review_reasons": review_reasons or [],  # Store the reasons (ensure list)
+            "human_review_status": "Needs Review"
+            if needs_human_review
+            else "Not Required",  # Set status based on flag
             "human_reviewer_id": None,
             "human_review_timestamp": None,
             "human_corrected_scores": None,
             "human_review_comments": None,
-            "created_at": datetime.utcnow().isoformat() + "Z" # ISO 8601 format
+            "created_at": datetime.utcnow().isoformat() + "Z",  # ISO 8601 format
         }
 
         # Append the new record
         evaluations.append(new_evaluation)
 
         # Write the updated list back to the file
-        with open(EVALUATIONS_FILE_PATH, 'w', encoding='utf-8') as f:
+        with open(EVALUATIONS_FILE_PATH, "w", encoding="utf-8") as f:
             json.dump(evaluations, f, indent=2, ensure_ascii=False)
 
-        print(f"Successfully saved evaluation {evaluation_id} to {EVALUATIONS_FILE_PATH}")
+        print(
+            f"Successfully saved evaluation {evaluation_id} to {EVALUATIONS_FILE_PATH}"
+        )
         return {"status": "success", "evaluation_id": evaluation_id}
 
     except IOError as e:
@@ -95,25 +110,35 @@ def save_evaluation_result(
         print(f"An unexpected error occurred saving evaluation: {e}")
         return {"status": "error", "message": f"Unexpected Error: {e}"}
 
-# Example usage (for testing):
-# if __name__ == "__main__":
-#     # Example data (replace with actual data from previous steps)
-#     test_eval_id = f"eval_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
-#     test_parsed_data = {
-#         "evaluation": {
-#             "Problem Understanding": {"score": "Yes", "justification": "Test justification PU."},
-#             "Results/Formulae": {"score": "No", "justification": "Test justification RF."}
-#         }
-#     }
-#     test_raw_output = {"raw_content": json.dumps(test_parsed_data)} # Simulate raw output containing the JSON
-#
-#     result = save_evaluation_result(
-#         evaluation_id=test_eval_id,
-#         response_id="resp_001_modelA",
-#         ideal_response_id="ideal_resp_001",
-#         judge_llm_model="gpt-4o-test",
-#         judge_prompt_template_version="v0.1-test",
-#         raw_judge_output=test_raw_output,
-#         parsed_rubric_scores=test_parsed_data.get("evaluation", {}) # Extract the inner evaluation dict
-#     )
-#     print(result)
+
+if __name__ == "__main__":
+    # Example data (replace with actual data from previous steps)
+    test_eval_id = f"eval_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    test_parsed_data = {
+        "evaluation": {
+            "Problem Understanding": {
+                "score": "Yes",
+                "justification": "Test justification PU.",
+            },
+            "Results/Formulae": {
+                "score": "No",
+                "justification": "Test justification RF.",
+            },
+        }
+    }
+    test_raw_output = {
+        "raw_content": json.dumps(test_parsed_data)
+    }  # Simulate raw output containing the JSON
+
+    result = save_evaluation_result(
+        evaluation_id=test_eval_id,
+        response_id="resp_001_modelA",
+        ideal_response_id="ideal_resp_001",
+        judge_llm_model="gpt-4o-test",
+        judge_prompt_template_version="v0.1-test",
+        raw_judge_output=test_raw_output,
+        parsed_rubric_scores=test_parsed_data.get(
+            "evaluation", {}
+        ),  # Extract the inner evaluation dict
+    )
+    print(result)
