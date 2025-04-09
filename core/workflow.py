@@ -1,30 +1,34 @@
 # CogniBench - Evaluation Workflow
 # Version: 0.2 (Phase 4 - External Prompts & Enhanced Postprocessing)
 
+import functools
 import json
 import os
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from .llm_clients.base import BaseLLMClient  # Import base class
 from .llm_clients.openai_client import (
-    OpenAIClient,  # Import specific client for default
-)
+    OpenAIClient,
+)  # Import specific client for default
 from .output_writer import save_evaluation_result
-from .postprocessing import perform_postprocessing # Updated import
+from .postprocessing import perform_postprocessing  # Updated import
 
 # Import core components
 from .preprocessing import extract_final_answer, normalize_text_formats
+
 # Removed: from .prompt_templates import FULL_L1_JUDGE_PROMPT_TEMPLATE
 from .response_parser import parse_judge_response
 
 # --- Configuration (Consider moving to a dedicated config module later) ---
 # Define base directory relative to this file
-BASE_DIR = os.path.dirname(os.path.dirname(__file__)) # Goes up one level from core to CogniBench
+BASE_DIR = os.path.dirname(
+    os.path.dirname(__file__)
+)  # Goes up one level from core to CogniBench
 DATA_DIR = os.path.join(BASE_DIR, "data")
-PROMPTS_DIR = os.path.join(BASE_DIR, "prompts") # New prompts directory
+PROMPTS_DIR = os.path.join(BASE_DIR, "prompts")  # New prompts directory
 
-PROMPTS_FILE = os.path.join(DATA_DIR, "prompts.json") # Input prompts data
+PROMPTS_FILE = os.path.join(DATA_DIR, "prompts.json")  # Input prompts data
 MODEL_RESPONSES_FILE = os.path.join(DATA_DIR, "model_responses.json")
 IDEAL_RESPONSES_FILE = os.path.join(DATA_DIR, "ideal_responses.json")
 
@@ -34,8 +38,9 @@ DEFAULT_JUDGE_LLM_MODEL = "gpt-4o"
 DEFAULT_JUDGE_PROMPT_VERSION = "v0.2-full-L1"
 
 
-# --- Helper Functions (Copied from run_single_evaluation.py - consider utils module) ---
-def load_json_data(file_path):
+# --- Helper Functions ---
+@functools.lru_cache(maxsize=None)  # Cache loaded data in memory
+def load_json_data(file_path: str) -> Optional[List[Dict[str, Any]]]:
     """Loads data from a JSON file."""
     if not os.path.exists(file_path):
         print(f"Workflow Error: Data file not found at {file_path}")
@@ -48,21 +53,27 @@ def load_json_data(file_path):
         return None
 
 
-def find_item_by_id(data_list, id_key, target_id):
-    """Finds an item in a list of dictionaries by its ID."""
-    if not data_list:
-        return None
-    for item in data_list:
-        if item.get(id_key) == target_id:
-            return item
+# Removed find_item_by_id as we will use dict lookups
+
+
+# Helper to create indexed dictionaries from loaded lists
+@functools.lru_cache(maxsize=8)  # Cache a few indexed dicts
+def _index_data_by_id(data_list_tuple: tuple, id_key: str) -> Dict[str, Any]:
+    """Converts a list of dicts (passed as tuple for caching) to a dict indexed by id_key."""
+    if not data_list_tuple:
+        return {}
+    return {item.get(id_key): item for item in data_list_tuple if item.get(id_key)}
+
+    # These lines were remnants of the old find_item_by_id function and are now removed.
     return None
 
 
+@functools.lru_cache(maxsize=32)  # Cache loaded prompt templates
 def load_prompt_template(version: str) -> Optional[str]:
     """Loads a specific prompt template version from the prompts directory."""
     # Basic sanitization of version to prevent path traversal
     safe_version = os.path.basename(version)
-    template_filename = f"{safe_version}.txt" # Assuming .txt extension
+    template_filename = f"{safe_version}.txt"  # Assuming .txt extension
     template_path = os.path.join(PROMPTS_DIR, template_filename)
 
     if not os.path.exists(template_path):
@@ -111,21 +122,49 @@ def run_evaluation_workflow(
     workflow_result = {"status": "error", "message": "Workflow did not complete."}
 
     # 1. Load Data
-    print("Workflow Step: Loading data...")
-    prompts = load_json_data(PROMPTS_FILE)
-    model_responses = load_json_data(MODEL_RESPONSES_FILE)
-    ideal_responses = load_json_data(IDEAL_RESPONSES_FILE)
-    if not all([prompts, model_responses, ideal_responses]):
+    print("Workflow Step: Loading and Indexing data...")
+    # Load data (will hit cache after first load)
+    prompts_list = load_json_data(PROMPTS_FILE)
+    model_responses_list = load_json_data(MODEL_RESPONSES_FILE)
+    ideal_responses_list = load_json_data(IDEAL_RESPONSES_FILE)
+
+    if not all([prompts_list, model_responses_list, ideal_responses_list]):
         workflow_result["message"] = "Failed to load necessary data files."
+        print(f"Error: {workflow_result['message']}")  # Added print
         return workflow_result
 
-    prompt_data = find_item_by_id(prompts, "prompt_id", prompt_id)
-    model_response_data = find_item_by_id(model_responses, "response_id", response_id)
-    ideal_response_data = find_item_by_id(
-        ideal_responses, "ideal_response_id", ideal_response_id
-    )
+    # Index data for fast lookup (will also hit cache)
+    # Note: Convert lists to tuples for caching as lists are not hashable
+    try:
+        prompts_dict = _index_data_by_id(tuple(prompts_list), "prompt_id")
+        model_responses_dict = _index_data_by_id(
+            tuple(model_responses_list), "response_id"
+        )
+        ideal_responses_dict = _index_data_by_id(
+            tuple(ideal_responses_list), "ideal_response_id"
+        )
+    except Exception as e:
+        workflow_result["message"] = f"Failed to index loaded data: {e}"
+        print(f"Error: {workflow_result['message']}")  # Added print
+        return workflow_result
+
+    # Retrieve specific items using dictionary lookup
+    prompt_data = prompts_dict.get(prompt_id)
+    model_response_data = model_responses_dict.get(response_id)
+    ideal_response_data = ideal_responses_dict.get(ideal_response_id)
+
     if not all([prompt_data, model_response_data, ideal_response_data]):
-        workflow_result["message"] = "Could not find specified data IDs in JSON files."
+        missing = []
+        if not prompt_data:
+            missing.append(f"prompt_id={prompt_id}")
+        if not model_response_data:
+            missing.append(f"response_id={response_id}")
+        if not ideal_response_data:
+            missing.append(f"ideal_response_id={ideal_response_id}")
+        workflow_result["message"] = (
+            f"Could not find specified data IDs in cached/indexed data: {', '.join(missing)}."
+        )
+        print(f"Error: {workflow_result['message']}")  # Added print
         return workflow_result
 
     # Basic validation (can be expanded)
@@ -167,10 +206,14 @@ def run_evaluation_workflow(
             return workflow_result
 
     # 4. Load and Format Prompt
-    print(f"Workflow Step: Loading prompt template (version: {judge_prompt_version})...")
+    print(
+        f"Workflow Step: Loading prompt template (version: {judge_prompt_version})..."
+    )
     prompt_template = load_prompt_template(judge_prompt_version)
     if prompt_template is None:
-        workflow_result["message"] = f"Failed to load prompt template version '{judge_prompt_version}'."
+        workflow_result["message"] = (
+            f"Failed to load prompt template version '{judge_prompt_version}'."
+        )
         return workflow_result
 
     print("Workflow Step: Formatting prompt...")
@@ -182,10 +225,14 @@ def run_evaluation_workflow(
             correct_answer=norm_correct_answer,
         )
     except KeyError as e:
-        workflow_result["message"] = f"Error formatting prompt template '{judge_prompt_version}': Missing key {e}."
+        workflow_result["message"] = (
+            f"Error formatting prompt template '{judge_prompt_version}': Missing key {e}."
+        )
         return workflow_result
-    except Exception as e: # Catch other potential formatting errors
-        workflow_result["message"] = f"Unexpected error formatting prompt template '{judge_prompt_version}': {e}."
+    except Exception as e:  # Catch other potential formatting errors
+        workflow_result["message"] = (
+            f"Unexpected error formatting prompt template '{judge_prompt_version}': {e}."
+        )
         return workflow_result
 
     # 5. Invoke LLM Judge
@@ -215,15 +262,19 @@ def run_evaluation_workflow(
     # 7. Postprocessing (using the enhanced function)
     print("Workflow Step: Postprocessing...")
     postprocessing_results = perform_postprocessing(
-        parsed_judge_response=parsed_data, # Pass the full parser output
+        parsed_judge_response=parsed_data,  # Pass the full parser output
         extracted_final_answer=extracted_answer,
-        correct_final_answer=norm_correct_answer
+        correct_final_answer=norm_correct_answer,
     )
-    print(f"  - Final Answer Verification: {postprocessing_results.get('verification_message')}")
+    print(
+        f"  - Final Answer Verification: {postprocessing_results.get('verification_message')}"
+    )
     print(f"  - Aggregated Score: {postprocessing_results.get('aggregated_score')}")
     print(f"  - Needs Human Review: {postprocessing_results.get('needs_human_review')}")
-    if postprocessing_results.get('review_reasons'):
-        print(f"  - Review Reasons: {'; '.join(postprocessing_results.get('review_reasons', []))}")
+    if postprocessing_results.get("review_reasons"):
+        print(
+            f"  - Review Reasons: {'; '.join(postprocessing_results.get('review_reasons', []))}"
+        )
 
     # 8. Save Result
     print("Workflow Step: Saving evaluation result...")
@@ -234,13 +285,19 @@ def run_evaluation_workflow(
         ideal_response_id=ideal_response_id,
         judge_llm_model=judge_llm_model,
         judge_prompt_template_version=judge_prompt_version,
-        raw_judge_output={"raw_content": raw_llm_output_content}, # Keep raw output
-        parsed_rubric_scores=parsed_data.get("evaluation", {}), # Pass parsed scores if available
+        raw_judge_output={"raw_content": raw_llm_output_content},  # Keep raw output
+        parsed_rubric_scores=parsed_data.get(
+            "evaluation", {}
+        ),  # Pass parsed scores if available
         # Pass fields from the enhanced postprocessing results
         final_answer_verified=postprocessing_results.get("final_answer_verified"),
         aggregated_score=postprocessing_results.get("aggregated_score"),
-        needs_human_review=postprocessing_results.get("needs_human_review", False), # Default to False if missing
-        review_reasons=postprocessing_results.get("review_reasons") # Pass the list of reasons
+        needs_human_review=postprocessing_results.get(
+            "needs_human_review", False
+        ),  # Default to False if missing
+        review_reasons=postprocessing_results.get(
+            "review_reasons"
+        ),  # Pass the list of reasons
     )
 
     if save_status.get("status") == "success":
@@ -271,4 +328,5 @@ if __name__ == "__main__":
 
     print("\n--- Workflow Result ---")
     print(json.dumps(result, indent=2))
+    print("-----------------------")
     print("-----------------------")
