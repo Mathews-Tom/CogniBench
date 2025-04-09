@@ -13,8 +13,14 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Security
 from fastapi.security import APIKeyHeader
 
 # Import schemas and potentially core functions if needed later
-from .schemas import (EvaluationRequest,  # Added EvaluationResultData
-                      EvaluationResponse, EvaluationResultData)
+from .schemas import (  # Added EvaluationResultData
+    EvaluationRequest,
+    EvaluationResponse,
+    EvaluationResultData,
+)
+
+from core.workflow import run_evaluation_workflow # Import the workflow function
+
 
 # --- Configuration (Should match workflow.py or be centralized) ---
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
