@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 # Define the path to the evaluations file relative to this script's location
 # Adjust if your project structure requires a different way to locate the data file
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
-EVALUATIONS_FILE_PATH = os.path.join(DATA_DIR, "evaluations.json")
+EVALUATIONS_FILE_PATH = os.path.join(DATA_DIR, "evaluations.jsonl") # Changed to .jsonl
 
 
 def save_evaluation_result(
@@ -51,23 +51,7 @@ def save_evaluation_result(
         # Ensure data directory exists
         os.makedirs(DATA_DIR, exist_ok=True)
 
-        # Read existing evaluations
-        evaluations = []
-        if os.path.exists(EVALUATIONS_FILE_PATH):
-            with open(EVALUATIONS_FILE_PATH, "r", encoding="utf-8") as f:
-                try:
-                    evaluations = json.load(f)
-                    if not isinstance(evaluations, list):
-                        print(
-                            f"Warning: {EVALUATIONS_FILE_PATH} does not contain a valid JSON list. Overwriting."
-                        )
-                        evaluations = []
-                except json.JSONDecodeError:
-                    print(
-                        f"Warning: Could not decode JSON from {EVALUATIONS_FILE_PATH}. Overwriting."
-                    )
-                    evaluations = []
-
+        # Removed reading the entire file - we will append directly.
         # Construct the new evaluation record
         new_evaluation = {
             "evaluation_id": evaluation_id,
@@ -91,12 +75,12 @@ def save_evaluation_result(
             "created_at": datetime.utcnow().isoformat() + "Z",  # ISO 8601 format
         }
 
-        # Append the new record
-        evaluations.append(new_evaluation)
+        # Convert the new record to a JSON string
+        json_line = json.dumps(new_evaluation, ensure_ascii=False)
 
-        # Write the updated list back to the file
-        with open(EVALUATIONS_FILE_PATH, "w", encoding="utf-8") as f:
-            json.dump(evaluations, f, indent=2, ensure_ascii=False)
+        # Append the JSON string as a new line to the file
+        with open(EVALUATIONS_FILE_PATH, "a", encoding="utf-8") as f:
+            f.write(json_line + "\n")
 
         print(
             f"Successfully saved evaluation {evaluation_id} to {EVALUATIONS_FILE_PATH}"
