@@ -6,6 +6,8 @@ import os
 import uuid
 from datetime import datetime
 
+from core.workflow import \
+    run_evaluation_workflow  # Import the workflow function
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Security
 from fastapi.security import APIKeyHeader
@@ -18,6 +20,7 @@ from .schemas import (  # Added EvaluationResultData
 )
 
 from core.workflow import run_evaluation_workflow # Import the workflow function
+
 
 # --- Configuration (Should match workflow.py or be centralized) ---
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
