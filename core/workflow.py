@@ -1,5 +1,5 @@
 # CogniBench - Evaluation Workflow
-# Version: 0.1 (Phase 2 - Basic Orchestration)
+# Version: 0.2 (Phase 4 - External Prompts & Enhanced Postprocessing)
 
 import json
 import os
@@ -11,16 +11,20 @@ from .llm_clients.openai_client import (
     OpenAIClient,  # Import specific client for default
 )
 from .output_writer import save_evaluation_result
-from .postprocessing import aggregate_scores, verify_final_answer
+from .postprocessing import perform_postprocessing # Updated import
 
 # Import core components
 from .preprocessing import extract_final_answer, normalize_text_formats
-from .prompt_templates import FULL_L1_JUDGE_PROMPT_TEMPLATE
+# Removed: from .prompt_templates import FULL_L1_JUDGE_PROMPT_TEMPLATE
 from .response_parser import parse_judge_response
 
 # --- Configuration (Consider moving to a dedicated config module later) ---
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
-PROMPTS_FILE = os.path.join(DATA_DIR, "prompts.json")
+# Define base directory relative to this file
+BASE_DIR = os.path.dirname(os.path.dirname(__file__)) # Goes up one level from core to CogniBench
+DATA_DIR = os.path.join(BASE_DIR, "data")
+PROMPTS_DIR = os.path.join(BASE_DIR, "prompts") # New prompts directory
+
+PROMPTS_FILE = os.path.join(DATA_DIR, "prompts.json") # Input prompts data
 MODEL_RESPONSES_FILE = os.path.join(DATA_DIR, "model_responses.json")
 IDEAL_RESPONSES_FILE = os.path.join(DATA_DIR, "ideal_responses.json")
 
@@ -52,6 +56,24 @@ def find_item_by_id(data_list, id_key, target_id):
         if item.get(id_key) == target_id:
             return item
     return None
+
+
+def load_prompt_template(version: str) -> Optional[str]:
+    """Loads a specific prompt template version from the prompts directory."""
+    # Basic sanitization of version to prevent path traversal
+    safe_version = os.path.basename(version)
+    template_filename = f"{safe_version}.txt" # Assuming .txt extension
+    template_path = os.path.join(PROMPTS_DIR, template_filename)
+
+    if not os.path.exists(template_path):
+        print(f"Workflow Error: Prompt template file not found at {template_path}")
+        return None
+    try:
+        with open(template_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except IOError as e:
+        print(f"Workflow Error loading prompt template {template_path}: {e}")
+        return None
 
 
 # --- Workflow Function ---
@@ -144,17 +166,26 @@ def run_evaluation_workflow(
             )
             return workflow_result
 
-    # 4. Format Prompt
+    # 4. Load and Format Prompt
+    print(f"Workflow Step: Loading prompt template (version: {judge_prompt_version})...")
+    prompt_template = load_prompt_template(judge_prompt_version)
+    if prompt_template is None:
+        workflow_result["message"] = f"Failed to load prompt template version '{judge_prompt_version}'."
+        return workflow_result
+
     print("Workflow Step: Formatting prompt...")
     try:
-        filled_prompt = FULL_L1_JUDGE_PROMPT_TEMPLATE.format(
+        filled_prompt = prompt_template.format(
             prompt_content=norm_prompt_content,
             model_response_text=norm_model_response_text,
             ideal_response_text=norm_ideal_response_text,
             correct_answer=norm_correct_answer,
         )
     except KeyError as e:
-        workflow_result["message"] = f"Error formatting prompt: Missing key {e}."
+        workflow_result["message"] = f"Error formatting prompt template '{judge_prompt_version}': Missing key {e}."
+        return workflow_result
+    except Exception as e: # Catch other potential formatting errors
+        workflow_result["message"] = f"Unexpected error formatting prompt template '{judge_prompt_version}': {e}."
         return workflow_result
 
     # 5. Invoke LLM Judge
@@ -174,18 +205,25 @@ def run_evaluation_workflow(
     # 6. Parse Response
     print("Workflow Step: Parsing LLM response...")
     parsed_data = parse_judge_response(raw_llm_output_content)
+    # Parsing errors are now handled within postprocessing, but we can log here
     if "error" in parsed_data:
-        workflow_result["message"] = f"Response Parsing failed: {parsed_data['error']}"
-        # TODO: Decide how to handle parsing errors - save raw output anyway?
-        return workflow_result
-    parsed_scores = parsed_data.get("evaluation", {})
+        print(f"  - Parsing Warning/Error: {parsed_data['error']}")
+        # Continue to postprocessing, which will flag for review
+    # parsed_scores = parsed_data.get("evaluation", {}) # This is handled by postprocessing now
 
     # 7. Postprocessing
+    # 7. Postprocessing (using the enhanced function)
     print("Workflow Step: Postprocessing...")
-    is_answer_correct = verify_final_answer(extracted_answer, norm_correct_answer)
-    print(f"  - Final Answer Verification Result: {is_answer_correct}")
-    aggregated_score_result = aggregate_scores(parsed_scores)
-    print(f"  - Aggregated Score: {aggregated_score_result}")
+    postprocessing_results = perform_postprocessing(
+        parsed_judge_response=parsed_data, # Pass the full parser output
+        extracted_final_answer=extracted_answer,
+        correct_final_answer=norm_correct_answer
+    )
+    print(f"  - Final Answer Verification: {postprocessing_results.get('verification_message')}")
+    print(f"  - Aggregated Score: {postprocessing_results.get('aggregated_score')}")
+    print(f"  - Needs Human Review: {postprocessing_results.get('needs_human_review')}")
+    if postprocessing_results.get('review_reasons'):
+        print(f"  - Review Reasons: {'; '.join(postprocessing_results.get('review_reasons', []))}")
 
     # 8. Save Result
     print("Workflow Step: Saving evaluation result...")
@@ -196,10 +234,13 @@ def run_evaluation_workflow(
         ideal_response_id=ideal_response_id,
         judge_llm_model=judge_llm_model,
         judge_prompt_template_version=judge_prompt_version,
-        raw_judge_output={"raw_content": raw_llm_output_content},
-        parsed_rubric_scores=parsed_scores,
-        final_answer_verified=is_answer_correct,
-        aggregated_score=aggregated_score_result,
+        raw_judge_output={"raw_content": raw_llm_output_content}, # Keep raw output
+        parsed_rubric_scores=parsed_data.get("evaluation", {}), # Pass parsed scores if available
+        # Pass fields from the enhanced postprocessing results
+        final_answer_verified=postprocessing_results.get("final_answer_verified"),
+        aggregated_score=postprocessing_results.get("aggregated_score"),
+        needs_human_review=postprocessing_results.get("needs_human_review", False), # Default to False if missing
+        review_reasons=postprocessing_results.get("review_reasons") # Pass the list of reasons
     )
 
     if save_status.get("status") == "success":
