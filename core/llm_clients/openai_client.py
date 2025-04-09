@@ -2,12 +2,39 @@
 # Version: 1.0
 
 import os
+import shelve
+import hashlib
+import json
+import atexit
 from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 from openai import OpenAI, OpenAIError
 
 from .base import BaseLLMClient
+
+# --- Cache Setup ---
+CACHE_FILENAME = "openai_cache.db"
+_cache = None
+
+def _close_cache():
+    global _cache
+    if _cache:
+        _cache.close()
+        print("--- OpenAI Cache Closed ---")
+
+def _get_cache():
+    global _cache
+    if _cache is None:
+        try:
+            _cache = shelve.open(CACHE_FILENAME)
+            atexit.register(_close_cache) # Ensure cache is closed on exit
+            print(f"--- OpenAI Cache Opened ({CACHE_FILENAME}) ---")
+        except Exception as e:
+            print(f"Warning: Could not open cache file '{CACHE_FILENAME}': {e}")
+            _cache = {} # Fallback to in-memory dict if shelve fails
+    return _cache
+# --- End Cache Setup ---
 
 
 class OpenAIClient(BaseLLMClient):
@@ -38,6 +65,8 @@ class OpenAIClient(BaseLLMClient):
         try:
             self.client = OpenAI(api_key=resolved_api_key)
             print("OpenAI client initialized successfully.")
+            # Initialize cache access when client is created
+            _get_cache()
         except OpenAIError as e:
             print(f"Error initializing OpenAI client: {e}")
             raise  # Re-raise the exception after logging
@@ -61,7 +90,7 @@ class OpenAIClient(BaseLLMClient):
             system_prompt: An optional system message to guide the LLM's behavior.
             temperature: The sampling temperature for generation (0 for deterministic).
             **kwargs: Additional arguments for the OpenAI API call
-                      (e.g., max_tokens, response_format).
+                        (e.g., max_tokens, response_format).
 
         Returns:
             A dictionary containing the LLM's response or an error message.
@@ -73,8 +102,25 @@ class OpenAIClient(BaseLLMClient):
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        # --- Cache Check ---
+        cache = _get_cache()
+        # Create a stable cache key
+        key_dict = {
+            "model": model_name,
+            "messages": messages,
+            "temperature": temperature,
+            "kwargs": sorted(kwargs.items()) # Sort kwargs for consistency
+        }
+        key_string = json.dumps(key_dict, sort_keys=True)
+        cache_key = hashlib.sha256(key_string.encode('utf-8')).hexdigest()
+
+        if isinstance(cache, shelve.Shelf) and cache_key in cache:
+            print(f"--- Cache HIT for model: {model_name} (key: {cache_key[:8]}...) ---")
+            return cache[cache_key]
+        # --- End Cache Check ---
+
         try:
-            print(f"--- Invoking OpenAI model: {model_name} ---")  # Basic logging
+            print(f"--- Cache MISS. Invoking OpenAI model: {model_name} (key: {cache_key[:8]}...) ---")
             response = self.client.chat.completions.create(
                 model=model_name,
                 messages=messages,
@@ -85,12 +131,24 @@ class OpenAIClient(BaseLLMClient):
 
             raw_response_content = response.choices[0].message.content
             # You could add more metadata from the response if needed
-            return {"raw_content": raw_response_content}
+            result = {"raw_content": raw_response_content}
+
+            # --- Cache Update ---
+            if isinstance(cache, shelve.Shelf):
+                try:
+                    cache[cache_key] = result
+                    print(f"--- Result cached (key: {cache_key[:8]}...) ---")
+                except Exception as e:
+                    print(f"Warning: Failed to write to cache: {e}")
+            # --- End Cache Update ---
+
+            return result
 
         except OpenAIError as e:
             print(f"Error during OpenAI API call: {e}")
             return {"error": f"OpenAI API Error: {e}"}
         except Exception as e:
+            # Don't cache unexpected errors
             print(f"An unexpected error occurred during OpenAI invocation: {e}")
             return {"error": f"Unexpected Error: {e}"}
 
@@ -109,3 +167,5 @@ class OpenAIClient(BaseLLMClient):
 #             print(f"Response: {result['raw_content']}")
 #     except (ValueError, OpenAIError) as e:
 #         print(f"Failed to initialize or invoke client: {e}")
+#     finally:
+#         _close_cache() # Ensure cache is closed in example too
