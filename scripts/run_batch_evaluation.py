@@ -1,10 +1,11 @@
 import argparse
 import json  # Import json for conversion step
-import logging  # Import logging
+import logging
+import re  # Import re for snake_case conversion
 import subprocess
 import sys
 import time  # For timestamp
-from datetime import datetime  # For timestamp
+from datetime import datetime
 from pathlib import Path
 
 # Assuming log_setup is in core directory relative to project root
@@ -55,6 +56,38 @@ def run_command(command_list):
     except FileNotFoundError:
         logger.error("Command not found (%s)", command_list[0])
         return None
+
+
+# --- Helper Function for Snake Case ---
+def to_snake_case(name):
+    """Converts CamelCase, PascalCase, or space-separated string to snake_case."""
+    if " " in name:  # Handle space-separated first
+        return name.strip().lower().replace(" ", "_")
+    s1 = re.sub("(.)([A-Z][a-z]+)", r"\1_\2", name)
+    return re.sub("([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
+
+
+def keys_to_snake_case(obj):
+    """Recursively converts dictionary keys and specific string values to snake_case."""
+    if isinstance(obj, dict):
+        new_dict = {}
+        for key, value in obj.items():
+            # Convert the key itself to snake_case
+            new_key = to_snake_case(key)
+            # Recursively process the value
+            new_dict[new_key] = keys_to_snake_case(value)
+        return new_dict
+    elif isinstance(obj, list):
+        # Recursively process items in a list
+        return [keys_to_snake_case(item) for item in obj]
+    # Optional: Convert specific string values if needed (e.g., model IDs)
+    # elif isinstance(obj, str):
+    #     # Example: Convert string values that might represent keys elsewhere
+    #     # return to_snake_case(obj)
+    #     return obj # Keep original string values by default
+    else:
+        # Return non-dict/list types as is
+        return obj
 
 
 if __name__ == "__main__":
@@ -223,8 +256,10 @@ if __name__ == "__main__":
                     try:
                         # Skip empty lines if any
                         if line.strip():
-                            evaluation_data = json.loads(line)
-                            # Remove the raw_judge_output key if it exists
+                            raw_evaluation_data = json.loads(line)
+                            # Convert keys to snake_case
+                            evaluation_data = keys_to_snake_case(raw_evaluation_data)
+                            # Remove the raw_judge_output key (already snake_cased if present)
                             evaluation_data.pop("raw_judge_output", None)
                             evaluations_list.append(evaluation_data)
                     except json.JSONDecodeError as e:
@@ -324,6 +359,9 @@ if __name__ == "__main__":
                         "task_id": task_id,
                         "prompt": original_task_data.get("prompt"),
                         "ideal_response": original_task_data.get("ideal_response"),
+                        "final_answer": original_task_data.get(
+                            "final_answer"
+                        ),  # Use renamed key final_answer
                         "metadata": original_task_data.get("metadata", {}),
                         "evaluations": [],
                     }
@@ -350,8 +388,9 @@ if __name__ == "__main__":
                     "task_id",
                     "model_id",
                     "response_id",
-                    "ideal_response_id",
-                    "raw_judge_output",
+                    "ideal_response_id",  # Already snake_case from conversion
+                    "raw_judge_output",  # Already snake_case and removed earlier
+                    # Add any other potential non-snake_case keys from judge output if known
                 }
                 judge_evaluation_data = {
                     k: v for k, v in evaluation.items() if k not in excluded_judge_keys
