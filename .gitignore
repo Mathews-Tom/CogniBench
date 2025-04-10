@@ -17,7 +17,9 @@ wheels/
 /data/*/
 /data/*_ingested_*.json*
 /data/*_evaluations_*.json*
+/data/evaluation_results.json
 /logs
+
 
 # Cache files
 openai_cache.db
