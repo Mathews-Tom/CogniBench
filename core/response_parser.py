@@ -11,7 +11,7 @@ EXPECTED_CRITERIA_FULL_L1 = [
     "Problem Understanding",
     "Assumptions",
     "Logical Implications",
-    "Results/Formulae",
+    "Results Formulae",
     "Rigor and Completeness",
 ]
 
@@ -228,7 +228,7 @@ if __name__ == "__main__":
                 "justification": "Model correctly identified the integral.",
                 "confidence": 0.9
             },
-            "Results/Formulae": {
+            "Results Formulae": {
                 "Score": "no",
                 "Justification": "Final answer was incorrect."
             },
@@ -249,7 +249,7 @@ if __name__ == "__main__":
                 "score": "Yes",
                 "justification": "Understood."
             },
-            "Results/Formulae": {
+            "Results Formulae": {
                 "score": "No",
                 "justification": "Wrong."
             }
@@ -267,7 +267,7 @@ if __name__ == "__main__":
     no_json_block = "The LLM failed to provide a JSON output."
 
     # Define expected criteria for this test run (subset)
-    test_expected = ["Problem Understanding", "Results/Formulae", "Assumptions"]
+    test_expected = ["Problem Understanding", "Results Formulae", "Assumptions"]
 
     print("--- Testing Valid JSON (Fenced) ---")
     parsed = parse_judge_response(
@@ -280,7 +280,7 @@ if __name__ == "__main__":
     }
     assert parsed["evaluation"]["Problem Understanding"]["score"] == "Yes"
     assert (
-        parsed["evaluation"]["Results/Formulae"]["Score"] == "no"
+        parsed["evaluation"]["Results Formulae"]["Score"] == "no"
     )  # Note: original key preserved
     assert parsed["evaluation"]["Assumptions"]["score"] == "Partial"
 
@@ -305,7 +305,7 @@ if __name__ == "__main__":
     print(json.dumps(parsed, indent=2))
     assert "error" in parsed
     assert "Missing expected criteria" in parsed["error"]
-    assert "Results/Formulae" in parsed["error"]
+    assert "Results Formulae" in parsed["error"]
     assert "Assumptions" in parsed["error"]
 
     print("\n--- Testing Missing Score Key JSON ---")

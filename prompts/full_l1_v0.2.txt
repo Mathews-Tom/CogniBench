@@ -13,7 +13,7 @@ Your task is to evaluate the provided 'MODEL RESPONSE' based on ALL FIVE criteri
     *   **Yes:** Each step in the model's reasoning logically follows from the previous steps, definitions, axioms, or established theorems. Calculations within steps are correct.
     *   **No:** There are logical fallacies, incorrect calculations within steps, or steps that do not logically follow from prior reasoning.
 
-4.  **Results/Formulae:**
+4.  **Results Formulae:**
     *   **Yes:** The final answer derived by the model is mathematically equivalent to the 'CORRECT ANSWER'. Minor formatting differences are acceptable if mathematically equivalent.
     *   **No:** The final answer derived by the model is mathematically incorrect or inequivalent to the 'CORRECT ANSWER'.
 
@@ -48,7 +48,7 @@ You will be given the following inputs:
       "score": "Yes" or "No",
       "justification": "Your detailed reasoning on the logical flow and correctness of calculations/steps, referencing MODEL RESPONSE and potentially IDEAL RESPONSE."
     }},
-    "Results/Formulae": {{
+    "Results Formulae": {{
       "score": "Yes" or "No",
       "justification": "Your detailed reasoning comparing the model's final answer to the CORRECT ANSWER."
     }},

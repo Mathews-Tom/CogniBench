@@ -61,7 +61,7 @@ def test_postprocessing_fail_score_no_review_needed():
             "score": "Yes",
             "justification": "Understood the problem well.",
         },
-        "Results/Formulae": {
+        "Results Formulae": {
             "score": "No",
             "justification": "The final calculation had an error in step 3.",
         },  # Non-trivial
@@ -85,14 +85,14 @@ def test_postprocessing_fail_score_trivial_justification():
             "score": "Yes",
             "justification": "Understood the problem well.",
         },
-        "Results/Formulae": {"score": "No", "justification": "Wrong."},  # Trivial
+        "Results Formulae": {"score": "No", "justification": "Wrong."},  # Trivial
     }
     parsed_input = mock_parsed_response(evaluation)
     result = perform_postprocessing(parsed_input, "100", "101")
 
     assert result["needs_human_review"] is True
     assert "Potential trivial justification" in result["review_reasons"][0]
-    assert "Results/Formulae" in result["review_reasons"][0]
+    assert "Results Formulae" in result["review_reasons"][0]
     assert result["parsing_error"] is None
     assert result["aggregated_score"] == "Fail"
     assert result["final_answer_verified"] is False

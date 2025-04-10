@@ -15,7 +15,7 @@
 * **IDEAL RESPONSE:** The expert-provided, step-by-step correct solution methodology.
 * **FINAL_ANSWER:** The ground-truth final answer to the prompt, extracted from human annotations during ingestion.
 * **CogniBench:** The system being designed; it leverages a powerful LLM (the "Judge LLM") to perform the evaluation.
-* **L1 Rubric Parameters:** Problem Understanding, Assumptions, Logical Implications, Results/Formulae, Rigor and Completeness.
+* **L1 Rubric Parameters:** Problem Understanding, Assumptions, Logical Implications, Results Formulae, Rigor and Completeness.
 * **L2 Subcomponents:** Granular criteria under each L1 parameter.
 * **Binary Evaluation (Yes/No):** Each L1 parameter (and potentially L2 subcomponent) is scored as either fully meeting the criteria (Yes) or having a flaw (No).
 * **Justification:** The judge must provide reasoning for each Yes/No decision, referencing specific parts of the `MODEL RESPONSE` and `IDEAL RESPONSE`.
@@ -105,8 +105,8 @@ graph LR
 * **D. Post-processing & Aggregation:**
   * **Function:** Refines and aggregates the raw evaluation results.
   * **Sub-Tasks:**
-    * *Final Answer Verification:* Compare the `Model Final Answer` (extracted from the model's response text during Preprocessing) with the ground-truth `final_answer` (ingested from human annotations). This result strongly informs the `Results/Formulae` L1 score but is also a critical standalone metric.
-    * *Consistency Checks (Optional):* Implement checks, e.g., if `Results/Formulae` is 'No' due to final answer mismatch, ensure justification aligns. Could involve rule-based checks or even another LLM call for self-consistency review.
+    * *Final Answer Verification:* Compare the `Model Final Answer` (extracted from the model's response text during Preprocessing) with the ground-truth `final_answer` (ingested from human annotations). This result strongly informs the `Results Formulae` L1 score but is also a critical standalone metric.
+    * *Consistency Checks (Optional):* Implement checks, e.g., if `Results Formulae` is 'No' due to final answer mismatch, ensure justification aligns. Could involve rule-based checks or even another LLM call for self-consistency review.
     * *Score Aggregation:* Calculate summary statistics if needed (e.g., total L1 'Yes' count). Determine an overall PASS/FAIL based on predefined rules (e.g., requires 'Yes' on all L1 parameters, or specific combinations). The reference doc suggests *any* 'No' results in overall failure for that component.
     * *Human Review Flags:* Identify evaluations that might need human review (e.g., low confidence scores from the LLM if available, inconsistent justifications, borderline cases, failure to parse LLM output).
 * **E. Output Generation:**

@@ -132,7 +132,7 @@ if __name__ == "__main__":
                 "score": "Yes",
                 "justification": "Test justification PU.",
             },
-            "Results/Formulae": {
+            "Results Formulae": {
                 "score": "No",
                 "justification": "Test justification RF.",
             },

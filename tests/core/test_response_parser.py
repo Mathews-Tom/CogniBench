@@ -27,7 +27,7 @@ Some text before.
             "score": "Partial",
             "justification": "One step was shaky."
         },
-        "Results/Formulae": {
+        "Results Formulae": {
             "score": "yes",
             "justification": "Correct final answer."
         },
@@ -57,7 +57,7 @@ VALID_JSON_PLAIN = """
             "score": "Yes",
             "justification": "Fine"
         },
-        "results/formulae": {
+        "Results Formulae": {
             "score": "Yes",
             "justification": "Match"
         },
@@ -78,7 +78,7 @@ MISSING_CRITERION = """
         "Problem Understanding": {"score": "Yes", "justification": "OK"},
         "Assumptions": {"score": "No", "justification": "Bad"},
         "Logical Implications": {"score": "Yes", "justification": "Fine"},
-        "Results/Formulae": {"score": "Yes", "justification": "Match"}
+        "Results Formulae": {"score": "Yes", "justification": "Match"}
         // Missing Rigor and Completeness
     }
 }"""
@@ -171,7 +171,7 @@ def test_parse_missing_criterion():
             "Problem Understanding": {"score": "Yes", "justification": "OK"},
             "Assumptions": {"score": "No", "justification": "Bad"},
             "Logical Implications": {"score": "Yes", "justification": "Fine"},
-            "Results/Formulae": {"score": "Yes", "justification": "Match"}
+            "Results Formulae": {"score": "Yes", "justification": "Match"}
         }
     }"""
     result = parse_judge_response(clean_missing_criterion)
@@ -256,14 +256,14 @@ def test_parse_whitespace_string():
 
 def test_parse_custom_expected_criteria():
     """Test using a subset of expected criteria."""
-    custom_criteria = ["Problem Understanding", "Results/Formulae"]
+    custom_criteria = ["Problem Understanding", "Results Formulae"]
     result = parse_judge_response(VALID_JSON_FENCED, expected_criteria=custom_criteria)
     assert "error" not in result
     assert "evaluation" in result
     # The output evaluation dict should only contain the keys that were expected and validated
     assert len(result["evaluation"]) == 2
     assert "Problem Understanding" in result["evaluation"]
-    assert "Results/Formulae" in result["evaluation"]
+    assert "Results Formulae" in result["evaluation"]
 
 
 def test_parse_custom_allowed_scores():

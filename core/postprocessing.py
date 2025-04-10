@@ -286,7 +286,7 @@ if __name__ == "__main__":
                 "score": "Yes",
                 "justification": "Clearly understood the requirements.",
             },
-            "Results/Formulae": {
+            "Results Formulae": {
                 "score": "No",
                 "justification": "Calculation error led to wrong result.",
             },

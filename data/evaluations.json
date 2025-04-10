@@ -20,7 +20,7 @@
           "score": "Yes",
           "justification": "The steps followed logically, applying integration by parts correctly."
         },
-        "Results/Formulae": {
+        "Results Formulae": {
           "score": "Yes",
           "justification": "The final calculation matches the ideal response."
         },
@@ -43,7 +43,7 @@
         "score": "Yes",
         "justification": "The steps followed logically, applying integration by parts correctly."
       },
-      "Results/Formulae": {
+      "Results Formulae": {
         "score": "Yes",
         "justification": "The final calculation matches the ideal response."
       },
@@ -68,14 +68,14 @@
     "judge_llm_model": "gpt-4o",
     "judge_prompt_template_version": "v0.1-initial",
     "raw_judge_output": {
-      "raw_content": "```json\n{\n  \"evaluation\": {\n    \"Problem Understanding\": {\n      \"score\": \"Yes\",\n      \"justification\": \"The model correctly interprets the problem by identifying the need to calculate the definite integral of x^2 * sin(x) from 0 to pi. It sets up the problem using integration by parts, which is the appropriate method for this type of integral, as indicated in the PROMPT.\"\n    },\n    \"Results/Formulae\": {\n      \"score\": \"Yes\",\n      \"justification\": \"The final answer provided by the model is pi^2 - 4, which matches the CORRECT ANSWER. The model's reasoning steps, although not fully detailed in the provided excerpt, lead to the correct final result, indicating that the calculations were performed correctly.\"\n    }\n  }\n}\n```"
+      "raw_content": "```json\n{\n  \"evaluation\": {\n    \"Problem Understanding\": {\n      \"score\": \"Yes\",\n      \"justification\": \"The model correctly interprets the problem by identifying the need to calculate the definite integral of x^2 * sin(x) from 0 to pi. It sets up the problem using integration by parts, which is the appropriate method for this type of integral, as indicated in the PROMPT.\"\n    },\n    \"Results Formulae\": {\n      \"score\": \"Yes\",\n      \"justification\": \"The final answer provided by the model is pi^2 - 4, which matches the CORRECT ANSWER. The model's reasoning steps, although not fully detailed in the provided excerpt, lead to the correct final result, indicating that the calculations were performed correctly.\"\n    }\n  }\n}\n```"
     },
     "parsed_rubric_scores": {
       "Problem Understanding": {
         "score": "Yes",
         "justification": "The model correctly interprets the problem by identifying the need to calculate the definite integral of x^2 * sin(x) from 0 to pi. It sets up the problem using integration by parts, which is the appropriate method for this type of integral, as indicated in the PROMPT."
       },
-      "Results/Formulae": {
+      "Results Formulae": {
         "score": "Yes",
         "justification": "The final answer provided by the model is pi^2 - 4, which matches the CORRECT ANSWER. The model's reasoning steps, although not fully detailed in the provided excerpt, lead to the correct final result, indicating that the calculations were performed correctly."
       }
