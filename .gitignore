@@ -18,3 +18,7 @@ wheels/
 /data/*_ingested_*.json*
 /data/*_evaluations_*.json*
 /logs
+
+# Cache files
+openai_cache.db
+*.db.db # Catch potential variations
