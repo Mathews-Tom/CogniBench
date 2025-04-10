@@ -236,6 +236,9 @@ if run_button and uploaded_files and st.session_state.selected_template_name:
 if st.session_state.get('evaluation_running', False):
     st.header("Evaluation Progress")
     progress_area = st.container()
+    # Add progress bar and text
+    progress_bar = progress_area.progress(0.0) # Initialize with float
+    progress_text = progress_area.text("Starting evaluation...")
     log_expander = st.expander("Show Full Logs", expanded=False)
     log_placeholder = log_expander.empty()
 
@@ -340,9 +343,20 @@ if st.session_state.get('evaluation_running', False):
             else:
                 st.session_state.last_run_output.append(line)
                 log_lines.append(line)
-                # Basic progress update (can be improved if backend prints specific format)
-                if "Evaluating task" in line:
-                     progress_area.info(line) # Show task progress directly
+                # Progress update based on backend message
+                progress_match = re.match(r"PROGRESS: Task (\d+)/(\d+)", line)
+                if progress_match:
+                    current_task = int(progress_match.group(1))
+                    total_tasks_backend = int(progress_match.group(2))
+                    # Ensure total_tasks_backend is not zero
+                    if total_tasks_backend > 0:
+                        progress_percentage = float(current_task) / total_tasks_backend
+                        progress_bar.progress(progress_percentage) # Update progress bar
+                        progress_text.text(f"Evaluating Task {current_task}/{total_tasks_backend}...") # Update text
+                    else:
+                        progress_text.text(f"Evaluating Task {current_task}/Unknown Total...")
+                elif "Evaluating task" in line: # Fallback if specific format not found
+                     progress_text.text(line) # Show task progress directly in text area
                 # Parse for results file path
                 match = re.search(r"Successfully combined ingested data and evaluations into (.*_final_results\.json)", line)
                 if match:
@@ -580,9 +594,31 @@ if st.session_state.results_df is not None:
                                 color_discrete_map={'Yes': 'green', 'Partial': 'orange', 'No': 'red', 'N/A': 'grey'})
             fig_rubric.update_xaxes(tickangle=45)
             st.plotly_chart(fig_rubric, use_container_width=True)
-        else:
+        else: # Corresponds to 'if rubric_cols and 'model_id' in filtered_df.columns:'
             st.warning("Could not generate Rubric Score Analysis. Rubric score columns not found or 'model_id' missing.")
 
+        # --- Score Distribution Chart ---
+        st.subheader("Score Distribution Analysis")
+        # Example: Using 'human_rating' if it's numerical
+        score_col_to_plot = 'human_rating'
+        if score_col_to_plot in filtered_df.columns:
+            # Ensure the column is numeric, coercing errors to NaN
+            numeric_scores = pd.to_numeric(filtered_df[score_col_to_plot], errors='coerce')
+            numeric_scores = numeric_scores.dropna() # Remove non-numeric entries
+
+            if not numeric_scores.empty:
+                fig_dist = px.histogram(numeric_scores, x=score_col_to_plot,
+                                        title=f"Distribution of {score_col_to_plot.replace('_', ' ').title()}",
+                                        labels={score_col_to_plot: score_col_to_plot.replace('_', ' ').title()},
+                                        marginal="box", # Add box plot marginal
+                                        nbins=20) # Adjust number of bins as needed
+                st.plotly_chart(fig_dist, use_container_width=True)
+            else:
+                st.info(f"No valid numerical data found in '{score_col_to_plot}' column for distribution plot.")
+        else:
+            st.info(f"Column '{score_col_to_plot}' not found in results, skipping distribution plot.")
+
+        # This section was duplicated and misplaced, removing it.
 
         # --- Task-Level Explorer ---
         st.subheader("Task-Level Explorer")
@@ -607,8 +643,10 @@ if st.session_state.results_df is not None:
         st.dataframe(filtered_df[cols_to_show].rename(columns=display_cols))
 
 
+# Correctly align these elif blocks with the main 'if st.session_state.results_df is not None:'
 elif st.session_state.evaluation_results_paths:
-    # This case handles if loading failed
+    # This case handles if loading failed after paths were found
     st.error("Failed to load or process evaluation results.")
 elif not st.session_state.get('evaluation_running', False):
+    # Displayed if no results paths exist and not currently running
     st.info("Run an evaluation to see results.")
