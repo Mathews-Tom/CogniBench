@@ -22,6 +22,7 @@ Evaluating LLMs on complex reasoning tasks, especially in specialized fields lik
 * **Combined Results:** Generates a final JSON file grouping results by task for easier comparison across models.
 * **Configurable Logging:** Timestamped log files and configurable console output levels.
 * **API Interface:** (Optional) Provides an API for programmatic interaction.
+* **Streamlit UI (In Progress):** A user-friendly interface for running and visualizing evaluations.
 
 ## Project Structure
 
@@ -49,6 +50,7 @@ CogniBench/
 ├── scripts/              # Utility and execution scripts
 │   ├── ingest_rlhf_data.py       # Script to convert raw data to CogniBench format
 │   └── run_batch_evaluation.py   # Script to run ingestion and evaluation for a batch
+├── streamlit_app/        # Streamlit application for UI-based interaction
 ├── tests/                # Unit and integration tests
 ├── .gitignore
 ├── .python-version       # Specifies Python version (likely for pyenv)

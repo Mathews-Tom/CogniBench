@@ -62,10 +62,13 @@ graph LR
     style H fill:#4db6ac,stroke:#333,stroke-width:2px
     %% Workflow Orchestrator - Medium Amber (#ffca28)
     style G fill:#ffca28,stroke:#333,stroke-width:2px
+    %% Streamlit UI - Light Green (#a5d6a7)
+    I[Streamlit UI] -- Interacts --> H;
+    style I fill:#a5d6a7,stroke:#333,stroke-width:2px
   end
 ```
 
-*Note: This diagram represents the core evaluation workflow. Batch processing involves scripts that orchestrate this workflow for multiple inputs.*
+*Note: This diagram represents the core evaluation workflow. Batch processing involves scripts that orchestrate this workflow for multiple inputs. A Streamlit UI provides a user-friendly interface.*
 
 ## 4. Component Breakdown
 
@@ -186,4 +189,4 @@ graph LR
 * **Visual Understanding:** Integrate capabilities into CogniBench to analyze diagrams or plots if they are part of the prompt or response (requires multi-modal models).
 * **Automated Ideal Response Generation (Research):** Explore using powerful LLMs within the CogniBench workflow to *generate* the `IDEAL RESPONSE` as a starting point for human experts, speeding up the process.
 * **Integration with L0:** Tightly integrate the L1 Judge output from CogniBench back into the L0 Golden Prompt Discovery process for richer failure analysis.
-* **User Interface:** Build a simple web UI for CogniBench for submitting evaluations and viewing reports, including side-by-side comparison of Model vs. Ideal response annotated with judge comments.
+* **User Interface (In Progress):** A Streamlit application (`streamlit_app/`) is being developed to provide a user-friendly interface for uploading batch files, configuring evaluations, running the process, and visualizing results.
