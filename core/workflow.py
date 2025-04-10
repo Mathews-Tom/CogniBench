@@ -3,8 +3,12 @@
 
 import functools
 import json
-import os
-import uuid
+import logging  # Import logging
+import sys
+
+# import os # May not be needed if paths come from config/args
+import uuid  # Keep for evaluation_id
+from pathlib import Path  # Use pathlib
 from typing import Any, Dict, List, Optional
 
 from .llm_clients.base import BaseLLMClient  # Import base class
@@ -21,222 +25,174 @@ from .preprocessing import extract_final_answer, normalize_text_formats
 from .response_parser import parse_judge_response
 
 # --- Configuration (Consider moving to a dedicated config module later) ---
-# Define base directory relative to this file
-BASE_DIR = os.path.dirname(
-    os.path.dirname(__file__)
-)  # Goes up one level from core to CogniBench
-DATA_DIR = os.path.join(BASE_DIR, "data")
-PROMPTS_DIR = os.path.join(BASE_DIR, "prompts")  # New prompts directory
-
-PROMPTS_FILE = os.path.join(DATA_DIR, "prompts.json")  # Input prompts data
-MODEL_RESPONSES_FILE = os.path.join(DATA_DIR, "model_responses.json")
-IDEAL_RESPONSES_FILE = os.path.join(DATA_DIR, "ideal_responses.json")
-
-# Default LLM settings (can be overridden)
+# Default settings (can be overridden by config)
 DEFAULT_JUDGE_LLM_PROVIDER = "openai"
 DEFAULT_JUDGE_LLM_MODEL = "gpt-4o"
-DEFAULT_JUDGE_PROMPT_VERSION = "v0.2-full-L1"
+# DEFAULT_JUDGE_PROMPT_VERSION = "v0.2-full-L1" # Version comes from config now
+DEFAULT_PROMPT_TEMPLATE_PATH = (
+    "prompts/judge_template_v1.txt"  # Example default path in config
+)
+
+# Get logger for this module
+logger = logging.getLogger(__name__)
 
 
 # --- Helper Functions ---
-@functools.lru_cache(maxsize=None)  # Cache loaded data in memory
-def load_json_data(file_path: str) -> Optional[List[Dict[str, Any]]]:
-    """Loads data from a JSON file."""
-    if not os.path.exists(file_path):
-        print(f"Workflow Error: Data file not found at {file_path}")
-        return None
+@functools.lru_cache(maxsize=32)  # Cache loaded prompt templates by path
+def load_prompt_template(template_path_str: str) -> Optional[str]:
+    """Loads a prompt template from the given path."""
+    template_path = Path(template_path_str)
+    # Resolve relative to BASE_DIR if not absolute? Or assume path is correct.
+    # Let's assume the path passed is relative to the project root (CogniBench/) or absolute.
+    if not template_path.is_file():
+        # Try resolving relative to project root (assuming workflow.py is in core/)
+        project_root = Path(__file__).parent.parent
+        template_path = project_root / template_path_str
+        if not template_path.is_file():
+            logger.error(
+                "Prompt template file not found at %s (or resolved to %s)",
+                template_path_str,
+                template_path,
+            )
+            return None
+
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, IOError) as e:
-        print(f"Workflow Error loading data from {file_path}: {e}")
-        return None
-
-
-# Removed find_item_by_id as we will use dict lookups
-
-
-# Helper to create indexed dictionaries from loaded lists
-@functools.lru_cache(maxsize=8)  # Cache a few indexed dicts
-def _index_data_by_id(data_list_tuple: tuple, id_key: str) -> Dict[str, Any]:
-    """Converts a list of dicts (passed as tuple for caching) to a dict indexed by id_key."""
-    if not data_list_tuple:
-        return {}
-    return {item.get(id_key): item for item in data_list_tuple if item.get(id_key)}
-
-    # These lines were remnants of the old find_item_by_id function and are now removed.
-    return None
-
-
-@functools.lru_cache(maxsize=32)  # Cache loaded prompt templates
-def load_prompt_template(version: str) -> Optional[str]:
-    """Loads a specific prompt template version from the prompts directory."""
-    # Basic sanitization of version to prevent path traversal
-    safe_version = os.path.basename(version)
-    template_filename = f"{safe_version}.txt"  # Assuming .txt extension
-    template_path = os.path.join(PROMPTS_DIR, template_filename)
-
-    if not os.path.exists(template_path):
-        print(f"Workflow Error: Prompt template file not found at {template_path}")
-        return None
-    try:
-        with open(template_path, "r", encoding="utf-8") as f:
+        with template_path.open("r", encoding="utf-8") as f:
             return f.read()
     except IOError as e:
-        print(f"Workflow Error loading prompt template {template_path}: {e}")
+        logger.error("Error loading prompt template %s", template_path, exc_info=True)
         return None
 
 
 # --- Workflow Function ---
-
-
 def run_evaluation_workflow(
-    prompt_id: str,
-    response_id: str,
-    ideal_response_id: str,
-    judge_llm_provider: str = DEFAULT_JUDGE_LLM_PROVIDER,
-    judge_llm_model: str = DEFAULT_JUDGE_LLM_MODEL,
-    judge_prompt_version: str = DEFAULT_JUDGE_PROMPT_VERSION,
+    prompt: str,
+    response: str,
+    ideal_response: str,
+    config: Dict[str, Any],
+    task_id: Optional[str] = None,  # For context
+    model_id: Optional[str] = None,  # For context
     llm_client: Optional[
         BaseLLMClient
     ] = None,  # Allow passing a pre-initialized client
+    output_jsonl_path: Optional[Path] = None,  # Path for the output JSONL file
 ) -> Dict[str, Any]:
     """
     Executes the end-to-end evaluation workflow for a single response.
 
     Args:
-        prompt_id: ID of the prompt to use.
-        response_id: ID of the model response to evaluate.
-        ideal_response_id: ID of the ideal response for comparison.
-        judge_llm_provider: The provider of the Judge LLM (e.g., "openai").
-        judge_llm_model: The specific model name of the Judge LLM.
-        judge_prompt_version: The version of the prompt template used.
+        prompt: The text content of the prompt.
+        response: The text content of the model's response to evaluate.
+        ideal_response: The text content of the ideal/reference response.
+        config: The loaded configuration dictionary.
+        task_id: Optional identifier for the task.
+        model_id: Optional identifier for the model that generated the response.
         llm_client: An optional pre-initialized LLM client instance.
+        output_jsonl_path: Optional Path object for the target output JSONL file.
 
     Returns:
         A dictionary containing the status and results of the workflow.
         Example success: {"status": "success", "evaluation_id": "eval_...", "result": {...}}
         Example failure: {"status": "error", "message": "Error details..."}
     """
-    print(f"\n--- Starting Workflow for Response ID: {response_id} ---")
+    # Construct a unique identifier for this specific evaluation instance
+    eval_instance_id = f"task_{task_id or 'unknown'}_model_{model_id or 'unknown'}"
+    logger.debug(  # Changed to debug
+        f"--- Starting Workflow for Evaluation Instance: {eval_instance_id} ---"
+    )
     workflow_result = {"status": "error", "message": "Workflow did not complete."}
 
-    # 1. Load Data
-    print("Workflow Step: Loading and Indexing data...")
-    # Load data (will hit cache after first load)
-    prompts_list = load_json_data(PROMPTS_FILE)
-    model_responses_list = load_json_data(MODEL_RESPONSES_FILE)
-    ideal_responses_list = load_json_data(IDEAL_RESPONSES_FILE)
+    # 1. Data is passed directly, no loading/indexing needed here.
+    # Get config values
+    llm_config = config.get("llm_client", {})
+    eval_config = config.get("evaluation_settings", {})
 
-    if not all([prompts_list, model_responses_list, ideal_responses_list]):
-        workflow_result["message"] = "Failed to load necessary data files."
-        print(f"Error: {workflow_result['message']}")  # Added print
-        return workflow_result
+    judge_llm_provider = llm_config.get("provider", DEFAULT_JUDGE_LLM_PROVIDER)
+    judge_llm_model = eval_config.get(
+        "judge_model", llm_config.get("model", DEFAULT_JUDGE_LLM_MODEL)
+    )  # Prefer judge_model if set
+    prompt_template_path = eval_config.get(
+        "prompt_template", DEFAULT_PROMPT_TEMPLATE_PATH
+    )
 
-    # Index data for fast lookup (will also hit cache)
-    # Note: Convert lists to tuples for caching as lists are not hashable
-    try:
-        prompts_dict = _index_data_by_id(tuple(prompts_list), "prompt_id")
-        model_responses_dict = _index_data_by_id(
-            tuple(model_responses_list), "response_id"
-        )
-        ideal_responses_dict = _index_data_by_id(
-            tuple(ideal_responses_list), "ideal_response_id"
-        )
-    except Exception as e:
-        workflow_result["message"] = f"Failed to index loaded data: {e}"
-        print(f"Error: {workflow_result['message']}")  # Added print
-        return workflow_result
-
-    # Retrieve specific items using dictionary lookup
-    prompt_data = prompts_dict.get(prompt_id)
-    model_response_data = model_responses_dict.get(response_id)
-    ideal_response_data = ideal_responses_dict.get(ideal_response_id)
-
-    if not all([prompt_data, model_response_data, ideal_response_data]):
-        missing = []
-        if not prompt_data:
-            missing.append(f"prompt_id={prompt_id}")
-        if not model_response_data:
-            missing.append(f"response_id={response_id}")
-        if not ideal_response_data:
-            missing.append(f"ideal_response_id={ideal_response_id}")
+    # Validation (optional): Check if required config values are present
+    if not judge_llm_model or not prompt_template_path:
         workflow_result["message"] = (
-            f"Could not find specified data IDs in cached/indexed data: {', '.join(missing)}."
+            "Missing judge_model or prompt_template in configuration."
         )
-        print(f"Error: {workflow_result['message']}")  # Added print
+        logger.error(workflow_result["message"])
         return workflow_result
-
-    # Basic validation (can be expanded)
-    if (
-        model_response_data.get("prompt_id") != prompt_id
-        or ideal_response_data.get("prompt_id") != prompt_id
-    ):
-        print(
-            f"Workflow Warning: Mismatch between prompt_id ({prompt_id}), response prompt_id ({model_response_data.get('prompt_id')}), and ideal response prompt_id ({ideal_response_data.get('prompt_id')})."
-        )
-        # Decide if this should be a fatal error for the workflow
 
     # 2. Preprocessing
-    print("Workflow Step: Preprocessing...")
-    norm_model_response_text = normalize_text_formats(
-        model_response_data["response_text"]
-    )
-    norm_ideal_response_text = normalize_text_formats(
-        ideal_response_data["response_text"]
-    )
-    norm_prompt_content = prompt_data["content"]  # Assuming prompt is clean
-    norm_correct_answer = normalize_text_formats(ideal_response_data["correct_answer"])
+    logger.debug("Workflow Step: Preprocessing...")  # Changed to debug
+    norm_model_response_text = normalize_text_formats(response)
+    norm_ideal_response_text = normalize_text_formats(ideal_response)
+    norm_prompt_content = normalize_text_formats(
+        prompt
+    )  # Normalize prompt too for consistency
+    # Use ideal response as the 'correct answer' for comparison and template filling for now
+    norm_correct_answer_text = norm_ideal_response_text
     extracted_answer = extract_final_answer(norm_model_response_text)
-    print(f"  - Extracted Answer: {extracted_answer}")
+    logger.debug("  - Extracted Answer: %s", extracted_answer)  # Changed to debug
 
     # 3. Initialize LLM Client (if not provided)
     if llm_client is None:
-        print(f"Workflow Step: Initializing LLM client ({judge_llm_provider})...")
+        logger.debug(
+            f"Workflow Step: Initializing LLM client ({judge_llm_provider})..."
+        )  # Changed to debug
         if judge_llm_provider == "openai":
             try:
                 llm_client = OpenAIClient()  # Assumes API key in env/.env
             except Exception as e:
                 workflow_result["message"] = f"Failed to initialize OpenAI client: {e}"
+                logger.error(workflow_result["message"], exc_info=True)
                 return workflow_result
         else:
+            # Add support for other clients here if needed
             workflow_result["message"] = (
                 f"Unsupported LLM provider '{judge_llm_provider}'."
             )
+            logger.error(workflow_result["message"])
             return workflow_result
 
     # 4. Load and Format Prompt
-    print(
-        f"Workflow Step: Loading prompt template (version: {judge_prompt_version})..."
+    logger.debug(  # Changed to debug
+        f"Workflow Step: Loading prompt template from path: {prompt_template_path}..."
     )
-    prompt_template = load_prompt_template(judge_prompt_version)
+    prompt_template = load_prompt_template(prompt_template_path)
     if prompt_template is None:
+        # Error logged in load_prompt_template
         workflow_result["message"] = (
-            f"Failed to load prompt template version '{judge_prompt_version}'."
+            f"Failed to load prompt template from '{prompt_template_path}'."
         )
         return workflow_result
 
-    print("Workflow Step: Formatting prompt...")
+    logger.debug("Workflow Step: Formatting prompt...")  # Changed to debug
     try:
+        # Use ideal response text also as the 'correct_answer' placeholder for now
         filled_prompt = prompt_template.format(
             prompt_content=norm_prompt_content,
             model_response_text=norm_model_response_text,
             ideal_response_text=norm_ideal_response_text,
-            correct_answer=norm_correct_answer,
+            correct_answer=norm_correct_answer_text,
         )
     except KeyError as e:
         workflow_result["message"] = (
-            f"Error formatting prompt template '{judge_prompt_version}': Missing key {e}."
+            f"Error formatting prompt template '{prompt_template_path}': Missing key {e}."
         )
+        logger.error(workflow_result["message"])
         return workflow_result
     except Exception as e:  # Catch other potential formatting errors
         workflow_result["message"] = (
-            f"Unexpected error formatting prompt template '{judge_prompt_version}': {e}."
+            f"Unexpected error formatting prompt template '{prompt_template_path}': {e}."
         )
+        logger.error(workflow_result["message"], exc_info=True)
         return workflow_result
 
     # 5. Invoke LLM Judge
-    print(f"Workflow Step: Invoking Judge LLM ({judge_llm_model})...")
+    logger.debug(
+        f"Workflow Step: Invoking Judge LLM ({judge_llm_model})..."
+    )  # Changed to debug
     judge_system_prompt = "You are an expert mathematician and rigorous evaluator assessing an AI model's response."
     llm_response = llm_client.invoke(
         prompt=filled_prompt,
@@ -246,45 +202,51 @@ def run_evaluation_workflow(
     )
     if "error" in llm_response:
         workflow_result["message"] = f"LLM Invocation failed: {llm_response['error']}"
+        logger.error(workflow_result["message"])
         return workflow_result
     raw_llm_output_content = llm_response.get("raw_content", "")
 
     # 6. Parse Response
-    print("Workflow Step: Parsing LLM response...")
+    logger.debug("Workflow Step: Parsing LLM response...")  # Changed to debug
     parsed_data = parse_judge_response(raw_llm_output_content)
     # Parsing errors are now handled within postprocessing, but we can log here
     if "error" in parsed_data:
-        print(f"  - Parsing Warning/Error: {parsed_data['error']}")
+        logger.warning("Parsing Warning/Error: %s", parsed_data["error"])
         # Continue to postprocessing, which will flag for review
     # parsed_scores = parsed_data.get("evaluation", {}) # This is handled by postprocessing now
 
     # 7. Postprocessing
     # 7. Postprocessing (using the enhanced function)
-    print("Workflow Step: Postprocessing...")
+    logger.debug("Workflow Step: Postprocessing...")  # Changed to debug
     postprocessing_results = perform_postprocessing(
         parsed_judge_response=parsed_data,  # Pass the full parser output
         extracted_final_answer=extracted_answer,
-        correct_final_answer=norm_correct_answer,
+        correct_final_answer=norm_correct_answer_text,  # Use ideal response text here for now
     )
-    print(
-        f"  - Final Answer Verification: {postprocessing_results.get('verification_message')}"
+    logger.debug(  # Changed to debug
+        "  - Final Answer Verification: %s",
+        postprocessing_results.get("verification_message"),
     )
-    print(f"  - Aggregated Score: {postprocessing_results.get('aggregated_score')}")
-    print(f"  - Needs Human Review: {postprocessing_results.get('needs_human_review')}")
-    if postprocessing_results.get("review_reasons"):
-        print(
-            f"  - Review Reasons: {'; '.join(postprocessing_results.get('review_reasons', []))}"
+    logger.debug(  # Changed to debug
+        "  - Aggregated Score: %s", postprocessing_results.get("aggregated_score")
+    )
+    needs_review = postprocessing_results.get("needs_human_review")
+    logger.debug("  - Needs Human Review: %s", needs_review)  # Changed to debug
+    if needs_review and postprocessing_results.get("review_reasons"):
+        logger.debug(  # Changed to debug
+            "  - Review Reasons: %s",
+            "; ".join(postprocessing_results.get("review_reasons", [])),
         )
 
     # 8. Save Result
-    print("Workflow Step: Saving evaluation result...")
+    logger.debug("Workflow Step: Saving evaluation result...")  # Changed to debug
     evaluation_id = f"eval_{uuid.uuid4()}"
     save_status = save_evaluation_result(
-        evaluation_id=evaluation_id,
-        response_id=response_id,
-        ideal_response_id=ideal_response_id,
+        evaluation_id=evaluation_id,  # Keep unique ID for this specific eval run
+        task_id=task_id,  # Store original task ID
+        model_id=model_id,  # Store model ID
         judge_llm_model=judge_llm_model,
-        judge_prompt_template_version=judge_prompt_version,
+        judge_prompt_template_path=prompt_template_path,  # Store path instead of version
         raw_judge_output={"raw_content": raw_llm_output_content},  # Keep raw output
         parsed_rubric_scores=parsed_data.get(
             "evaluation", {}
@@ -298,10 +260,13 @@ def run_evaluation_workflow(
         review_reasons=postprocessing_results.get(
             "review_reasons"
         ),  # Pass the list of reasons
+        output_jsonl_path=output_jsonl_path,  # Pass the output path down
     )
 
     if save_status.get("status") == "success":
-        print(f"--- Workflow Complete for Response ID: {response_id} ---")
+        logger.debug(  # Changed to debug
+            "--- Workflow Complete for Evaluation Instance: %s ---", eval_instance_id
+        )
         workflow_result = {
             "status": "success",
             "evaluation_id": evaluation_id,
@@ -311,22 +276,9 @@ def run_evaluation_workflow(
         workflow_result["message"] = (
             f"Failed to save evaluation: {save_status.get('message')}"
         )
+        logger.error(workflow_result["message"])
 
     return workflow_result
 
 
-if __name__ == "__main__":
-    test_prompt_id = "math_prompt_001"
-    test_response_id = "resp_001_modelA"
-    test_ideal_response_id = "ideal_resp_001"
-
-    result = run_evaluation_workflow(
-        prompt_id=test_prompt_id,
-        response_id=test_response_id,
-        ideal_response_id=test_ideal_response_id,
-    )
-
-    print("\n--- Workflow Result ---")
-    print(json.dumps(result, indent=2))
-    print("-----------------------")
-    print("-----------------------")
+# Remove the __main__ block as this module is not intended to be run directly anymore
