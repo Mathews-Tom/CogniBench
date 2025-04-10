@@ -65,6 +65,8 @@ graph LR
   end
 ```
 
+*Note: This diagram represents the core evaluation workflow. Batch processing involves scripts that orchestrate this workflow for multiple inputs.*
+
 ## 4. Component Breakdown
 
 * **A. Input Data Intake:**
@@ -113,12 +115,18 @@ graph LR
   * **Content:** Include input data references, the extracted final answer vs. correct answer, the detailed L1 (and L2 if captured) rubric scores (Yes/No) with justifications, identified errors, overall assessment (Pass/Fail), and any human review flags. Stores the structured output in `Data Storage`.
 * **F. Data Storage:**
   * **Function:** Persists all relevant data for tracking, analysis, auditing, and potential future fine-tuning of the Judge LLM.
-  * **Technology:** Relational Database (e.g., PostgreSQL) or NoSQL Database (e.g., MongoDB), depending on query needs.
-  * **Schema:** Tables/Collections for Prompts, Model Responses, Ideal Responses, Judge LLM Evaluations (including raw inputs, LLM judge output, parsed rubric scores, justifications, metadata like timestamps, model versions, Judge LLM used).
+  * **Technology:** Primarily uses JSON Lines (`.jsonl`) for efficient appending of evaluation results during runs, stored on the filesystem. Formatted JSON (`.json`) versions are generated for readability, and a final combined JSON aggregates results. Databases (SQL/NoSQL) could be integrated for more complex querying and management.
+  * **Structure (Filesystem):**
+      * `data/Batch-XXX_YYYYMMDD_HHMM/`: Timestamped subdirectory created by `run_batch_evaluation.py` for each run.
+          * `*_ingested_*.json`: Data prepared for evaluation by `ingest_rlhf_data.py`.
+          * `*_evaluations.jsonl`: Detailed judge evaluation results for each model response (append-friendly).
+          * `*_evaluations_formatted.json`: Pretty-printed JSON array version of the `.jsonl` file (excluding raw judge output).
+          * `*_final_results.json`: Final aggregated output, grouping results by `task_id` and combining ingested data (prompt, ideal response, metadata, human evals) with judge evaluations for each model.
+      * `logs/CogniBench_YYYYMMDD_HHMM.log`: Timestamped log file containing detailed execution information (DEBUG level and above). Console output is typically limited to WARNING level and above, plus `tqdm` progress bars.
 * **G. Workflow Orchestrator:**
   * **Function:** Manages the execution flow of the pipeline steps (A -> B -> C -> D -> E).
-  * **Technology:** Python scripts (using libraries like `asyncio` for IO-bound tasks), or dedicated workflow tools like Airflow, Prefect, Dagster, or serverless functions (e.g., AWS Step Functions).
-  * **Features:** Handles dependencies between steps, error handling, retries, logging, monitoring.
+  * **Technology:** Python scripts (`scripts/run_batch_evaluation.py`, `run_single_evaluation.py`). `run_batch_evaluation.py` orchestrates the end-to-end process including ingestion and evaluation steps.
+  * **Features:** Manages execution flow, handles file paths, calls component scripts (ingestion, evaluation), aggregates final results, manages logging configuration via `core/log_setup.py`.
 * **H. API Layer:**
   * **Function:** Provides an external interface to submit evaluation requests and retrieve results.
   * **Technology:** RESTful API using frameworks like FastAPI, Flask (Python), or Node.js/Express.
