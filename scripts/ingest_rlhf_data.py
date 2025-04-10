@@ -69,6 +69,7 @@ def ingest_rlhf_data(input_path: Path, output_path: Path):
         subject = None
         complexity = None
         final_answer = None # Initialize final_answer
+        system_prompt = None # Initialize system_prompt
         # Find user prompt and prompt evaluation metadata
         for message in messages:
             if message.get("role") == "user":
@@ -78,7 +79,10 @@ def ingest_rlhf_data(input_path: Path, output_path: Path):
                 complexity = extract_prompt_evaluation_value(
                     prompt_evaluation, "Complexity"
                 )
-                break  # Assuming only one user message per task
+                # Don't break yet, look for system prompt too
+            elif message.get("role") == "system":
+                system_prompt = message.get("text")
+                # Don't break, might be other messages
 
         # Find ideal response, model responses, and human evals in assistant message
         model_responses = []
@@ -153,7 +157,11 @@ def ingest_rlhf_data(input_path: Path, output_path: Path):
                 "final_answer": final_answer, # Add the renamed field
                 "model_responses": model_responses,
                 "human_evaluations": transformed_human_evals,  # Use transformed list
-                "metadata": {"subject": subject, "complexity": complexity},
+                "metadata": {
+                    "subject": subject,
+                    "complexity": complexity,
+                    "system_prompt": system_prompt # Add extracted system prompt
+                },
             }
             ingested_data.append(ingested_item)
         else:
