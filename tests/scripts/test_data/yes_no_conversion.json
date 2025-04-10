@@ -1,0 +1,26 @@
+{
+  "rlhf": [
+    {
+      "taskId": 104,
+      "messages": [
+        {"role": "user", "text": "User prompt 3"},
+        {
+          "role": "assistant",
+          "response_options": [],
+          "signal": {
+            "ideal_response": "Ideal 3",
+            "human_evals": [
+              {
+                "model_id": "model_c",
+                "evaluation_form": [
+                  {"question": "Is Correct", "human_input_value": "Yes"},
+                  {"question": "Needs Review", "human_input_value": "No"}
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

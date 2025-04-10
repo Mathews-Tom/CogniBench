@@ -1,0 +1,23 @@
+{
+  "rlhf": [
+    {
+      "taskId": 102,
+      "messages": [
+        {
+          "role": "user",
+          "text": "User prompt 2"
+        },
+        {
+          "role": "assistant",
+          "response_options": [
+            {"model_id": "model_b", "text": "Response B"}
+          ],
+          "signal": {
+            "ideal_response": null,
+            "human_evals": []
+          }
+        }
+      ]
+    }
+  ]
+}

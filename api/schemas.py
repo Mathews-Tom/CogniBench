@@ -69,6 +69,7 @@ class EvaluationResultData(BaseModel):
     Represents the detailed data structure of a single evaluation result
     as stored in evaluations.json.
     """
+
     evaluation_id: str
     response_id: str
     ideal_response_id: str
@@ -80,7 +81,7 @@ class EvaluationResultData(BaseModel):
     final_answer_verified: Optional[bool] = None
     human_review_status: Optional[str] = None
     human_reviewer_id: Optional[str] = None
-    human_review_timestamp: Optional[str] = None # Keep as string for ISO format
+    human_review_timestamp: Optional[str] = None  # Keep as string for ISO format
     human_corrected_scores: Optional[Dict[str, Any]] = None
     human_review_comments: Optional[str] = None
-    created_at: str # Keep as string for ISO format
+    created_at: str  # Keep as string for ISO format
