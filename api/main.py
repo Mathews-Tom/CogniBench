@@ -6,35 +6,32 @@ import os
 import uuid
 from datetime import datetime
 
-from core.workflow import \
-    run_evaluation_workflow  # Import the workflow function
+from core.workflow import run_evaluation_workflow  # Import the workflow function
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Security
 from fastapi.security import APIKeyHeader
 
 # Import schemas and potentially core functions if needed later
-from .schemas import (  # Added EvaluationResultData
-    EvaluationRequest,
+from .schemas import (
+    EvaluationRequest,  # Added EvaluationResultData
     EvaluationResponse,
     EvaluationResultData,
 )
-
-from core.workflow import run_evaluation_workflow # Import the workflow function
-
 
 # --- Configuration (Should match workflow.py or be centralized) ---
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 PROMPTS_FILE = os.path.join(DATA_DIR, "prompts.json")
 MODEL_RESPONSES_FILE = os.path.join(DATA_DIR, "model_responses.json")
 IDEAL_RESPONSES_FILE = os.path.join(DATA_DIR, "ideal_responses.json")
-EVALUATIONS_FILE = os.path.join(DATA_DIR, "evaluations.jsonl") # Updated to .jsonl
+EVALUATIONS_FILE = os.path.join(DATA_DIR, "evaluations.jsonl")  # Updated to .jsonl
 
 # --- Security Setup ---
-load_dotenv() # Load .env file for API_KEY
-API_KEY_NAME = "X-API-KEY" # Standard header name
-API_KEY = os.getenv("API_KEY") # Get the expected key from environment
+load_dotenv()  # Load .env file for API_KEY
+API_KEY_NAME = "X-API-KEY"  # Standard header name
+API_KEY = os.getenv("API_KEY")  # Get the expected key from environment
 
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
+
 
 async def get_api_key(key: str = Security(api_key_header)):
     """Dependency to verify the API key."""
@@ -42,15 +39,14 @@ async def get_api_key(key: str = Security(api_key_header)):
         # This is a server configuration error
         print("API Security Error: API_KEY environment variable not set on the server.")
         raise HTTPException(
-            status_code=500,
-            detail="Internal server error: API Key not configured."
+            status_code=500, detail="Internal server error: API Key not configured."
         )
     if key == API_KEY:
         return key
     else:
-        raise HTTPException(
-            status_code=403, detail="Could not validate credentials"
-        )
+        raise HTTPException(status_code=403, detail="Could not validate credentials")
+
+
 # --- End Security Setup ---
 
 # Create FastAPI app instance
@@ -80,9 +76,11 @@ async def health_check():
     "/evaluate",
     response_model=EvaluationResponse,
     tags=["Evaluation"],
-    dependencies=[Depends(get_api_key)], # Apply security dependency
+    dependencies=[Depends(get_api_key)],  # Apply security dependency
 )
-async def submit_evaluation(request: EvaluationRequest, background_tasks: BackgroundTasks):
+async def submit_evaluation(
+    request: EvaluationRequest, background_tasks: BackgroundTasks
+):
     """
     Accepts evaluation request data containing IDs for existing prompt, model response,
     and ideal response. Triggers the evaluation workflow asynchronously in the background.
@@ -116,7 +114,7 @@ async def submit_evaluation(request: EvaluationRequest, background_tasks: Backgr
         return EvaluationResponse(
             status="queued",
             message="Evaluation workflow successfully queued for background processing.",
-            evaluation_id=None, # No final ID available immediately
+            evaluation_id=None,  # No final ID available immediately
         )
 
     except HTTPException as http_exc:
@@ -134,7 +132,7 @@ async def submit_evaluation(request: EvaluationRequest, background_tasks: Backgr
     "/evaluate/{evaluation_id}",
     response_model=EvaluationResultData,
     tags=["Evaluation"],
-    dependencies=[Depends(get_api_key)], # Apply security dependency
+    dependencies=[Depends(get_api_key)],  # Apply security dependency
 )
 async def get_evaluation_result(evaluation_id: str):
     """
@@ -157,19 +155,21 @@ async def get_evaluation_result(evaluation_id: str):
                         # FastAPI will validate against the response_model
                         return evaluation
                 except json.JSONDecodeError:
-                    print(f"Warning: Skipping invalid JSON line in {EVALUATIONS_FILE}: {line.strip()}")
-                    continue # Skip malformed lines
+                    print(
+                        f"Warning: Skipping invalid JSON line in {EVALUATIONS_FILE}: {line.strip()}"
+                    )
+                    continue  # Skip malformed lines
     except FileNotFoundError:
-         raise HTTPException(status_code=404, detail=f"Evaluations data file not found.")
+        raise HTTPException(status_code=404, detail=f"Evaluations data file not found.")
     except IOError as e:
         raise HTTPException(
             status_code=500, detail=f"Error reading evaluations data file: {e}"
         )
-    except Exception as e: # Catch unexpected errors during processing
-         print(f"API Error: Unexpected error reading {EVALUATIONS_FILE}: {e}")
-         raise HTTPException(
-             status_code=500, detail="Internal server error reading evaluation data."
-         )
+    except Exception as e:  # Catch unexpected errors during processing
+        print(f"API Error: Unexpected error reading {EVALUATIONS_FILE}: {e}")
+        raise HTTPException(
+            status_code=500, detail="Internal server error reading evaluation data."
+        )
 
     # If loop completes without finding the ID
     raise HTTPException(

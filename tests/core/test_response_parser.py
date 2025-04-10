@@ -1,7 +1,12 @@
 # CogniBench/tests/core/test_response_parser.py
 
 import pytest
-from CogniBench.core.response_parser import parse_judge_response, EXPECTED_CRITERIA_FULL_L1, ALLOWED_SCORES
+
+from CogniBench.core.response_parser import (
+    ALLOWED_SCORES,
+    EXPECTED_CRITERIA_FULL_L1,
+    parse_judge_response,
+)
 
 # --- Test Data ---
 
@@ -108,16 +113,20 @@ WHITESPACE_STRING = "   \n\t   "
 
 # --- Test Cases ---
 
+
 def test_parse_valid_json_fenced():
     """Test parsing valid JSON enclosed in markdown fences."""
     result = parse_judge_response(VALID_JSON_FENCED)
     assert "error" not in result
     assert "evaluation" in result
-    assert len(result["evaluation"]) == 5 # All expected criteria found
+    assert len(result["evaluation"]) == 5  # All expected criteria found
     # Check one criterion's details (case-insensitivity of keys handled internally)
     assert result["evaluation"]["Assumptions"]["Score"] == "NO"
-    assert result["evaluation"]["Assumptions"]["Justification"] == "Missed key assumption."
-    assert result["extra_info"] == "Some comment" # Extra top-level keys preserved
+    assert (
+        result["evaluation"]["Assumptions"]["Justification"] == "Missed key assumption."
+    )
+    assert result["extra_info"] == "Some comment"  # Extra top-level keys preserved
+
 
 def test_parse_valid_json_plain():
     """Test parsing valid plain JSON with normalized keys."""
@@ -130,6 +139,7 @@ def test_parse_valid_json_plain():
     assert result["evaluation"]["problem understanding"]["score"] == "Yes"
     assert result["evaluation"]["Rigor and Completeness"]["score"] == "Partial"
 
+
 def test_parse_invalid_json_string():
     """Test handling of completely invalid JSON."""
     result = parse_judge_response(INVALID_JSON_STRING)
@@ -137,17 +147,20 @@ def test_parse_invalid_json_string():
     # It finds the braces, so it tries to parse, leading to JSONDecodeError
     assert "Invalid JSON format" in result["error"]
 
+
 def test_parse_missing_eval_key():
     """Test error when the top-level 'evaluation' key is missing."""
     result = parse_judge_response(MISSING_EVAL_KEY)
     assert "error" in result
     assert "Missing required top-level key: 'evaluation'" in result["error"]
 
+
 def test_parse_eval_not_dict():
     """Test error when 'evaluation' value is not a dictionary."""
     result = parse_judge_response(EVAL_NOT_DICT)
     assert "error" in result
     assert "'evaluation' value is not a JSON object" in result["error"]
+
 
 def test_parse_missing_criterion():
     """Test error when an expected criterion is missing."""
@@ -166,6 +179,7 @@ def test_parse_missing_criterion():
     assert "Missing expected criteria" in result["error"]
     assert "Rigor and Completeness" in result["error"]
 
+
 def test_parse_criterion_not_dict():
     """Test error when a criterion's value is not a dictionary."""
     # Ensure the input contains all expected criteria for this test
@@ -176,28 +190,48 @@ def test_parse_criterion_not_dict():
             "Assumptions": {"score": "No", "justification": "Bad"}
         }
     }"""
-    result = parse_judge_response(input_json, expected_criteria=["Problem Understanding", "Assumptions"])
+    result = parse_judge_response(
+        input_json, expected_criteria=["Problem Understanding", "Assumptions"]
+    )
     assert "error" in result
-    assert "Value for criterion 'Problem Understanding' is not a JSON object" in result["error"]
+    assert (
+        "Value for criterion 'Problem Understanding' is not a JSON object"
+        in result["error"]
+    )
+
 
 def test_parse_missing_score_key():
     """Test error when 'score' key is missing within a criterion."""
-    result = parse_judge_response(MISSING_SCORE_KEY, expected_criteria=["Problem Understanding"])
+    result = parse_judge_response(
+        MISSING_SCORE_KEY, expected_criteria=["Problem Understanding"]
+    )
     assert "error" in result
-    assert "Missing 'score' key for criterion 'Problem Understanding'" in result["error"]
+    assert (
+        "Missing 'score' key for criterion 'Problem Understanding'" in result["error"]
+    )
+
 
 def test_parse_missing_justification_key():
     """Test error when 'justification' key is missing within a criterion."""
-    result = parse_judge_response(MISSING_JUSTIFICATION_KEY, expected_criteria=["Problem Understanding"])
+    result = parse_judge_response(
+        MISSING_JUSTIFICATION_KEY, expected_criteria=["Problem Understanding"]
+    )
     assert "error" in result
-    assert "Missing 'justification' key for criterion 'Problem Understanding'" in result["error"]
+    assert (
+        "Missing 'justification' key for criterion 'Problem Understanding'"
+        in result["error"]
+    )
+
 
 def test_parse_invalid_score_value():
     """Test error when 'score' has an disallowed value."""
-    result = parse_judge_response(INVALID_SCORE_VALUE, expected_criteria=["Problem Understanding"])
+    result = parse_judge_response(
+        INVALID_SCORE_VALUE, expected_criteria=["Problem Understanding"]
+    )
     assert "error" in result
     assert "Invalid score value 'Maybe'" in result["error"]
     assert str(ALLOWED_SCORES) in result["error"]
+
 
 def test_parse_no_json_block():
     """Test handling when no JSON block is found."""
@@ -205,17 +239,20 @@ def test_parse_no_json_block():
     assert "error" in result
     assert "Could not find JSON block" in result["error"]
 
+
 def test_parse_empty_string():
     """Test handling of empty input string."""
     result = parse_judge_response(EMPTY_STRING)
     assert "error" in result
     assert "Could not find JSON block" in result["error"]
 
+
 def test_parse_whitespace_string():
     """Test handling of input string with only whitespace."""
     result = parse_judge_response(WHITESPACE_STRING)
     assert "error" in result
     assert "Could not find JSON block" in result["error"]
+
 
 def test_parse_custom_expected_criteria():
     """Test using a subset of expected criteria."""
@@ -228,6 +265,7 @@ def test_parse_custom_expected_criteria():
     assert "Problem Understanding" in result["evaluation"]
     assert "Results/Formulae" in result["evaluation"]
 
+
 def test_parse_custom_allowed_scores():
     """Test using custom allowed scores."""
     custom_scores = ["Pass", "Fail"]
@@ -237,11 +275,23 @@ def test_parse_custom_allowed_scores():
             "Problem Understanding": {"score": "Pass", "justification": "It passed."}
         }
     }"""
-    result = parse_judge_response(json_with_custom_score, expected_criteria=["Problem Understanding"], allowed_scores=custom_scores)
+    result = parse_judge_response(
+        json_with_custom_score,
+        expected_criteria=["Problem Understanding"],
+        allowed_scores=custom_scores,
+    )
     assert "error" not in result
     assert result["evaluation"]["Problem Understanding"]["score"] == "Pass"
 
     # Test failure with default scores
-    result_fail = parse_judge_response(json_with_custom_score, expected_criteria=["Problem Understanding"])
+    result_fail = parse_judge_response(
+        json_with_custom_score, expected_criteria=["Problem Understanding"]
+    )
+    assert "error" in result_fail
+    assert "Invalid score value 'Pass'" in result_fail["error"]
+    # Test failure with default scores
+    result_fail = parse_judge_response(
+        json_with_custom_score, expected_criteria=["Problem Understanding"]
+    )
     assert "error" in result_fail
     assert "Invalid score value 'Pass'" in result_fail["error"]

@@ -1,0 +1,35 @@
+{
+  "rlhf": [
+    {
+      "taskId": 101,
+      "messages": [
+        {
+          "role": "user",
+          "text": "User prompt 1",
+          "prompt_evaluation": [
+            {"question": "Subject", "human_input_value": "Algebra"},
+            {"question": "Complexity", "human_input_value": "Basic"}
+          ]
+        },
+        {
+          "role": "assistant",
+          "response_options": [
+            {"model_id": "model_a", "text": "Response A"}
+          ],
+          "signal": {
+            "ideal_response": "Ideal 1",
+            "human_evals": [
+              {
+                "model_id": "model_a",
+                "evaluation_form": [
+                  {"question": "Model Failure", "human_input_value": "No"},
+                  {"question": "Failure Comments", "human_input_value": "Looks good."}
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

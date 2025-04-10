@@ -10,6 +10,8 @@ dependencies = [
     "fastapi>=0.111.0",
     "uvicorn[standard]>=0.29.0", # [standard] includes performance extras
     "pytest>=8.3.5",
+    "pyyaml>=6.0", # Added for loading YAML config files
+    "tqdm>=4.66.0", # Added for progress bars
 ]
 
 [project.optional-dependencies]
