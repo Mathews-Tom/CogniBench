@@ -68,7 +68,7 @@ def ingest_rlhf_data(input_path: Path, output_path: Path):
         ideal_response = None
         subject = None
         complexity = None
-
+        final_answer = None # Initialize final_answer
         # Find user prompt and prompt evaluation metadata
         for message in messages:
             if message.get("role") == "user":
@@ -88,6 +88,10 @@ def ingest_rlhf_data(input_path: Path, output_path: Path):
                 signal = message.get("signal", {})
                 ideal_response = signal.get("ideal_response")
                 human_evaluations = signal.get("human_evals", [])  # Extract human evals
+
+                # Extract final answer from raw_preference_evaluation_form
+                raw_pref_form = signal.get("raw_preference_evaluation_form", [])
+                final_answer = extract_prompt_evaluation_value(raw_pref_form, "Final Answer")
 
                 # Extract model responses
                 response_options = message.get("response_options", [])
@@ -145,7 +149,8 @@ def ingest_rlhf_data(input_path: Path, output_path: Path):
             ingested_item = {
                 "task_id": task_id,
                 "prompt": user_prompt,
-                "ideal_response": ideal_response,
+                "ideal_response": ideal_response, # Already extracted
+                "final_answer": final_answer, # Add the renamed field
                 "model_responses": model_responses,
                 "human_evaluations": transformed_human_evals,  # Use transformed list
                 "metadata": {"subject": subject, "complexity": complexity},
