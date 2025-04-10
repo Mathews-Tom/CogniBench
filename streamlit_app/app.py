@@ -8,7 +8,10 @@ import sys
 import threading
 import queue
 import re
-import time # For demo spinner
+import time
+import pandas as pd
+import plotly.express as px
+import json
 
 # --- Constants ---
 APP_DIR = Path(__file__).parent
@@ -97,6 +100,8 @@ if 'api_key' not in st.session_state:
         st.session_state.evaluation_results_paths = []
     if 'last_run_output' not in st.session_state:
         st.session_state.last_run_output = []
+        if 'results_df' not in st.session_state:
+            st.session_state.results_df = None # To store the loaded DataFrame
 
 # --- Configuration Widgets ---
 col_config1, col_config2 = st.columns(2)
@@ -406,7 +411,204 @@ if clear_cache_button:
     elif errors:
         st.warning(f"Cleared {cleared_count} cache file(s), but encountered errors with: {', '.join(errors)}")
 
-# --- Phase 3: Visualize Results (Placeholder) ---
+# --- Phase 3: Visualize Results ---
 st.header("4. Results")
-st.info("Evaluation results will be displayed here after running (Phase 3).")
-# TODO: Add results visualization
+
+# --- Function to load and process results ---
+@st.cache_data # Cache the loaded data
+def load_and_process_results(results_paths):
+    """Loads data from _final_results.json files and processes into a DataFrame."""
+    all_results_data = []
+    for relative_path in results_paths:
+        try:
+            # Construct absolute path relative to CogniBench root
+            file_path = COGNIBENCH_ROOT / relative_path
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                # Data is a list of tasks
+                for task in data:
+                    task_id = task.get("task_id")
+                    prompt = task.get("prompt")
+                    ideal_response = task.get("ideal_response")
+                    final_answer_gt = task.get("final_answer") # Ground truth final answer
+                    metadata = task.get("metadata", {})
+                    subject = metadata.get("subject", "N/A")
+                    complexity = metadata.get("complexity", "N/A")
+
+                    for evaluation in task.get("evaluations", []):
+                        model_id = evaluation.get("model_id")
+                        model_response = evaluation.get("model_response")
+                        human_eval = evaluation.get("human_evaluation", {})
+                        judge_eval = evaluation.get("judge_evaluation", {})
+
+                        # Flatten judge_evaluation details (rubric scores, etc.)
+                        flat_judge_eval = {}
+                        if isinstance(judge_eval, dict):
+                             for key, value in judge_eval.items():
+                                 # Handle nested dicts like 'rubric_scores' if they exist
+                                 if isinstance(value, dict):
+                                     for sub_key, sub_value in value.items():
+                                         flat_judge_eval[f"judge_{key}_{sub_key}"] = sub_value
+                                 else:
+                                     flat_judge_eval[f"judge_{key}"] = value
+                        else:
+                             # Handle case where judge_eval might not be a dict
+                             flat_judge_eval['judge_evaluation_raw'] = judge_eval
+
+
+                        # Determine overall Pass/Fail/Partial based on judge rubric scores
+                        # Assumes judge_evaluation contains keys like 'judge_problem_understanding', 'judge_logical_implications', etc.
+                        # with values 'Yes', 'No', 'Partial'. Adjust logic based on actual keys.
+                        overall_status = "Pass" # Default
+                        rubric_keys = [k for k in flat_judge_eval if k.startswith('judge_rubric_')] # Example prefix
+                        if not rubric_keys: # Fallback if specific rubric keys aren't found
+                            rubric_keys = [k for k in flat_judge_eval if k.startswith('judge_') and k != 'judge_evaluation_id']
+
+                        has_no = False
+                        has_partial = False
+                        for r_key in rubric_keys:
+                            score = str(flat_judge_eval.get(r_key, '')).lower()
+                            if score == 'no':
+                                has_no = True
+                                break # 'No' overrides everything
+                            elif score == 'partial':
+                                has_partial = True
+
+                        if has_no:
+                            overall_status = "Fail"
+                        elif has_partial:
+                            overall_status = "Partial"
+
+
+                        all_results_data.append({
+                            "task_id": task_id,
+                            "model_id": model_id,
+                            "subject": subject,
+                            "complexity": complexity,
+                            "overall_status": overall_status,
+                            "prompt": prompt,
+                            "ideal_response": ideal_response,
+                            "model_response": model_response,
+                            "final_answer_ground_truth": final_answer_gt,
+                            **flat_judge_eval, # Add flattened judge scores
+                            # Add human eval fields if needed
+                            "human_preference": human_eval.get("preference"),
+                            "human_rating": human_eval.get("rating"),
+                        })
+        except FileNotFoundError:
+            st.error(f"Results file not found: {relative_path}")
+            return None
+        except json.JSONDecodeError:
+            st.error(f"Error decoding JSON from file: {relative_path}")
+            return None
+        except Exception as e:
+            st.error(f"Error processing file {relative_path}: {e}")
+            return None
+
+    if not all_results_data:
+        return None
+
+    return pd.DataFrame(all_results_data)
+
+# --- Load data if results paths exist ---
+if st.session_state.evaluation_results_paths and st.session_state.results_df is None:
+    with st.spinner("Loading and processing results..."):
+        st.session_state.results_df = load_and_process_results(st.session_state.evaluation_results_paths)
+
+# --- Display Results if DataFrame is loaded ---
+if st.session_state.results_df is not None:
+    df = st.session_state.results_df
+
+    st.success(f"Loaded {len(df)} evaluation results.")
+
+    # --- Filters ---
+    st.sidebar.header("Filters")
+    # Get unique values, handling potential missing columns gracefully
+    available_models = df['model_id'].unique().tolist() if 'model_id' in df.columns else []
+    available_tasks = df['task_id'].unique().tolist() if 'task_id' in df.columns else []
+    available_subjects = df['subject'].unique().tolist() if 'subject' in df.columns else []
+
+    selected_models = st.sidebar.multiselect("Filter by Model:", available_models, default=available_models)
+    selected_tasks = st.sidebar.multiselect("Filter by Task ID:", available_tasks, default=[])
+    selected_subjects = st.sidebar.multiselect("Filter by Subject:", available_subjects, default=available_subjects)
+
+    # Apply filters
+    filtered_df = df.copy()
+    if selected_models:
+        filtered_df = filtered_df[filtered_df['model_id'].isin(selected_models)]
+    if selected_tasks:
+        filtered_df = filtered_df[filtered_df['task_id'].isin(selected_tasks)]
+    if selected_subjects:
+        filtered_df = filtered_df[filtered_df['subject'].isin(selected_subjects)]
+
+    if filtered_df.empty:
+        st.warning("No data matches the selected filters.")
+    else:
+        # --- Overall Performance Chart ---
+        st.subheader("Overall Performance by Model")
+        if 'overall_status' in filtered_df.columns and 'model_id' in filtered_df.columns:
+            performance_counts = filtered_df.groupby(['model_id', 'overall_status']).size().reset_index(name='count')
+            fig_perf = px.bar(performance_counts, x='model_id', y='count', color='overall_status',
+                              title="Evaluation Status Count per Model",
+                              labels={'model_id': 'Model', 'count': 'Number of Tasks', 'overall_status': 'Overall Status'},
+                              barmode='group',
+                              color_discrete_map={'Pass': 'green', 'Partial': 'orange', 'Fail': 'red'})
+            st.plotly_chart(fig_perf, use_container_width=True)
+        else:
+            st.warning("Could not generate Overall Performance chart. Required columns ('model_id', 'overall_status') not found.")
+
+
+        # --- Rubric Score Breakdown ---
+        st.subheader("Rubric Score Analysis")
+        # Identify rubric score columns (adjust prefix/logic if needed)
+        rubric_cols = [col for col in filtered_df.columns if col.startswith('judge_rubric_') or (col.startswith('judge_') and col not in ['judge_evaluation_id', 'judge_evaluation_raw'])]
+        # Exclude columns that might not be rubric scores if the fallback was used
+        rubric_cols = [col for col in rubric_cols if col not in ['judge_model_final_answer', 'judge_final_answer_correct']] # Example exclusions
+
+        if rubric_cols and 'model_id' in filtered_df.columns:
+            rubric_melted = filtered_df.melt(id_vars=['model_id'], value_vars=rubric_cols, var_name='rubric_criterion', value_name='score')
+            # Clean criterion names for display
+            rubric_melted['rubric_criterion'] = rubric_melted['rubric_criterion'].str.replace('judge_rubric_', '').str.replace('judge_', '').str.replace('_', ' ').str.title()
+            rubric_counts = rubric_melted.groupby(['model_id', 'rubric_criterion', 'score']).size().reset_index(name='count')
+
+            fig_rubric = px.bar(rubric_counts, x='rubric_criterion', y='count', color='score',
+                                title="Rubric Score Distribution per Criterion",
+                                labels={'rubric_criterion': 'Rubric Criterion', 'count': 'Count', 'score': 'Score'},
+                                barmode='group',
+                                facet_col='model_id', # Show one chart per model
+                                category_orders={"score": ["Yes", "Partial", "No", "N/A"]}, # Ensure consistent order
+                                color_discrete_map={'Yes': 'green', 'Partial': 'orange', 'No': 'red', 'N/A': 'grey'})
+            fig_rubric.update_xaxes(tickangle=45)
+            st.plotly_chart(fig_rubric, use_container_width=True)
+        else:
+            st.warning("Could not generate Rubric Score Analysis. Rubric score columns not found or 'model_id' missing.")
+
+
+        # --- Task-Level Explorer ---
+        st.subheader("Task-Level Explorer")
+        # Select and rename columns for better readability
+        display_cols = {
+            "task_id": "Task ID",
+            "model_id": "Model",
+            "subject": "Subject",
+            "complexity": "Complexity",
+            "overall_status": "Overall Status",
+            # Add more judge scores if needed, e.g.:
+            # "judge_problem_understanding": "Judge: Problem Understanding",
+            # "judge_logical_implications": "Judge: Logical Implications",
+            "human_preference": "Human Preference",
+            "human_rating": "Human Rating",
+            "prompt": "Prompt",
+            "ideal_response": "Ideal Response",
+            "model_response": "Model Response",
+        }
+        # Filter df columns to only those we want to display and exist
+        cols_to_show = [col for col in display_cols.keys() if col in filtered_df.columns]
+        st.dataframe(filtered_df[cols_to_show].rename(columns=display_cols))
+
+
+elif st.session_state.evaluation_results_paths:
+    # This case handles if loading failed
+    st.error("Failed to load or process evaluation results.")
+elif not st.session_state.get('evaluation_running', False):
+    st.info("Run an evaluation to see results.")
