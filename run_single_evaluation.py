@@ -74,8 +74,13 @@ def main(args):
     logger.debug("Config: %s", config_path) # Changed to debug
     logger.debug("Input Data: %s", input_data_path) # Changed to debug
 
-    # Wrap the main loop with tqdm for progress bar
-    for task in tqdm(evaluation_tasks, desc="Evaluating Tasks"):
+    total_tasks = len(evaluation_tasks)
+    logger.info(f"Starting evaluation for {total_tasks} tasks.")
+
+    # Wrap the main loop with tqdm for progress bar, use enumerate for index
+    for i, task in enumerate(tqdm(evaluation_tasks, desc="Evaluating Tasks", file=sys.stdout)): # Direct tqdm to stdout
+        # Print progress update for Streamlit to capture
+        print(f"PROGRESS: Task {i+1}/{total_tasks}", file=sys.stdout, flush=True)
         task_id = task.get("task_id", "unknown_task")
         prompt_text = task.get("prompt")
         ideal_response_text = task.get("ideal_response")
