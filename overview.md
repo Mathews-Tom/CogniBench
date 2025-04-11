@@ -31,7 +31,7 @@ graph LR
     direction LR
 
     %% Core Workflow Components
-    A[Input Data Intake] --> B(Preprocessing);
+    A[Input Data Intake] --> B(Preprocessing: Normalization & LaTeX Conversion);
     B --> C["Evaluation Core (LLM Judge)"];
     C --> D[Post-processing & Aggregation];
     D --> E[Output Generation];
@@ -138,8 +138,9 @@ sequenceDiagram
 * **B. Preprocessing Module:**
   * **Function:** Prepares inputs for the Judge LLM.
   * **Sub-Tasks:**
-    * *Format Normalization:* Basic text normalization (Unicode, whitespace). *Note: LaTeX/MathML normalization is handled during postprocessing verification.*
-    * *Model Final Answer Extraction:* Uses enhanced regex patterns (including `$$...$$`) and heuristics to extract the final answer stated within the `MODEL RESPONSE`.
+    * *Format Normalization:* Basic text normalization (Unicode, whitespace).
+    * *LaTeX Notation Conversion:* Robust handling of LaTeX math notation, converting various wrappers (`$...$`, `$$...$$`, `\(...\)`, `\[...\]`) into standardized formats for consistent downstream processing.
+    * *Model Final Answer Extraction:* Uses refined regex patterns and heuristics to accurately extract the final answer stated within the `MODEL RESPONSE`.
     * *(Future) Response Segmentation:* (Not currently implemented) Could break down responses into logical sections.
     * *(Future) Sanitization:* (Not currently implemented) Could remove sensitive content if needed.
 * **C. Evaluation Core (LLM Judge):**

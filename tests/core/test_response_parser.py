@@ -2,11 +2,17 @@
 
 import pytest
 
-from CogniBench.core.response_parser import (
-    ALLOWED_SCORES,
-    EXPECTED_CRITERIA_FULL_L1,
-    parse_judge_response,
-)
+from CogniBench.core.response_parser import parse_judge_response
+
+# Explicitly define allowed scores and expected criteria for tests
+ALLOWED_SCORES = ["Yes", "No", "Partial"]
+EXPECTED_CRITERIA_FULL_L1 = [
+    "Problem Understanding",
+    "Assumptions",
+    "Logical Implications",
+    "Results Formulae",
+    "Rigor and Completeness",
+]
 
 # --- Test Data ---
 
