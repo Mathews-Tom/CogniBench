@@ -26,6 +26,7 @@ Evaluating LLMs on complex reasoning tasks, especially in specialized fields lik
   * Improved heuristic logic to accurately handle multi-line and markdown-formatted answers.
   * Enhanced logging for detailed debugging and transparency during the extraction process.
   * Mathematical equivalence checking using `sympy` (if installed) for accurate verification of math/symbolic answers, with fallback to string comparison.
+  * Recommended temperature setting for evaluations is `0.0` to ensure deterministic, consistent, and reproducible outputs.
 * **Improved Error Handling:** Response parser reports all validation errors found, not just the first.
 * **Data Management:** Structured way to handle prompts, ideal responses, model responses, and evaluation results. Output files are organized into timestamped subdirectories for each batch run.
 * **Batch Processing:** Includes scripts for ingesting raw data and running evaluations on entire batches.
