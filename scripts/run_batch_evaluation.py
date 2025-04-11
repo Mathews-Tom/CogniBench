@@ -418,6 +418,8 @@ if __name__ == "__main__":
                 "Successfully combined ingested data and evaluations into %s",
                 final_results_path,
             )
+            # Print the path to stdout for the Streamlit app to capture
+            print(f"Successfully combined ingested data and evaluations into {final_results_path}")
             logger.debug("--- Finished Step 4: Combining Results ---")
 
         except IOError as e:

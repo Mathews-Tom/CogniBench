@@ -26,7 +26,7 @@ st.set_page_config(layout="wide", page_title="CogniBench Runner")
 st.title("CogniBench Evaluation Runner")
 
 # --- Phase 1: Input Selection ---
-st.header("1. Upload Batch File(s)")
+st.header("1. Upload Raw RLHF JSON Data file(s)") # Renamed header
 
 uploaded_files = st.file_uploader(
     "Select CogniBench JSON batch file(s)",
@@ -46,7 +46,7 @@ else:
 # st.write("*(Folder selection coming soon)*")
 
 # --- Phase 1.5: Configuration Options ---
-st.header("2. Configure LLM Judge")  # Renamed header
+st.header("2. Configure LLM Judge") # Add main header for section 2
 
 # Define available models based on the plan
 # Use requested provider names as keys
@@ -129,94 +129,96 @@ if "output_queue" not in st.session_state:
     st.session_state.output_queue = queue.Queue()
 
 
-# --- Configuration Widgets ---
-col_config1, col_config2 = st.columns(2)
+# --- Configuration Widgets (within Expander) ---
+with st.expander("Configuration Details", expanded=False): # Simplified label, main header is above
+    col_config1, col_config2 = st.columns(2)
 
-with col_config1:
-    # Provider Selection
-    st.session_state.selected_provider = st.selectbox(
-        "Select LLM Provider",
-        options=list(AVAILABLE_MODELS.keys()),
-        index=list(AVAILABLE_MODELS.keys()).index(st.session_state.selected_provider),
-        key="provider_select",  # Use key to avoid issues with re-rendering
-    )
-
-    # Model Selection (dynamic based on provider)
-    available_model_names = list(
-        AVAILABLE_MODELS[st.session_state.selected_provider].keys()
-    )
-    # Ensure the previously selected model is still valid for the new provider, else default
-    current_model_index = 0
-    if st.session_state.selected_model_name in available_model_names:
-        current_model_index = available_model_names.index(
-            st.session_state.selected_model_name
+    with col_config1:
+        # Provider Selection
+        st.session_state.selected_provider = st.selectbox(
+            "Select LLM Provider",
+            options=list(AVAILABLE_MODELS.keys()),
+            index=list(AVAILABLE_MODELS.keys()).index(st.session_state.selected_provider),
+            key="provider_select",  # Use key to avoid issues with re-rendering
         )
-    else:
-        st.session_state.selected_model_name = available_model_names[
-            0
-        ]  # Default to first model of new provider
 
-    st.session_state.selected_model_name = st.selectbox(
-        "Select Judge Model",
-        options=available_model_names,
-        index=current_model_index,
-        key="model_select",
-    )
-
-with col_config2:
-    # API Key Input
-    st.session_state.api_key = st.text_input(
-        "API Key (Optional)",
-        type="password",
-        placeholder="Leave blank to use environment variable",
-        value=st.session_state.api_key,
-        key="api_key_input",
-    )
-
-    # Prompt Template Selection
-    if AVAILABLE_TEMPLATES:
-        st.session_state.selected_template_name = st.selectbox(
-            "Select Evaluation Prompt Template",
-            options=list(AVAILABLE_TEMPLATES.keys()),
-            index=list(AVAILABLE_TEMPLATES.keys()).index(
-                st.session_state.selected_template_name
+        # Model Selection (dynamic based on provider)
+        available_model_names = list(
+            AVAILABLE_MODELS[st.session_state.selected_provider].keys()
+        )
+        # Ensure the previously selected model is still valid for the new provider, else default
+        current_model_index = 0
+        if st.session_state.selected_model_name in available_model_names:
+            current_model_index = available_model_names.index(
+                st.session_state.selected_model_name
             )
-            if st.session_state.selected_template_name in AVAILABLE_TEMPLATES
-            else 0,
-            key="template_select",
+        else:
+            st.session_state.selected_model_name = available_model_names[
+                0
+            ]  # Default to first model of new provider
+
+        st.session_state.selected_model_name = st.selectbox(
+            "Select Judge Model",
+            options=available_model_names,
+            index=current_model_index,
+            key="model_select",
         )
+
+    with col_config2:
+        # API Key Input
+        st.session_state.api_key = st.text_input(
+            "API Key (Optional)",
+            type="password",
+            placeholder="Leave blank to use environment variable",
+            value=st.session_state.api_key,
+            key="api_key_input",
+        )
+
+        # Prompt Template Selection
+        if AVAILABLE_TEMPLATES:
+            st.session_state.selected_template_name = st.selectbox(
+                "Select Evaluation Prompt Template",
+                options=list(AVAILABLE_TEMPLATES.keys()),
+                index=list(AVAILABLE_TEMPLATES.keys()).index(
+                    st.session_state.selected_template_name
+                )
+                if st.session_state.selected_template_name in AVAILABLE_TEMPLATES
+                else 0,
+                key="template_select",
+            )
+        else:
+            st.warning(
+                "No prompt templates found. Please add templates to the 'prompts/' directory."
+            )
+            st.session_state.selected_template_name = None
+    # --- Display Current Configuration (Moved Inside Expander) ---
+    st.markdown("---")  # Separator inside expander
+    st.subheader("Current Judge Configuration")
+    if st.session_state.selected_template_name:
+        selected_model_api_id = AVAILABLE_MODELS[st.session_state.selected_provider][
+            st.session_state.selected_model_name
+        ]
+        selected_template_path = AVAILABLE_TEMPLATES[
+            st.session_state.selected_template_name
+        ]
+        api_key_status = (
+            "**Provided**" if st.session_state.api_key else "**Using Environment Variable**"
+        )
+
+        config_md = f"""
+        - **Provider:** {st.session_state.selected_provider}
+        - **Model:** {st.session_state.selected_model_name} (`{selected_model_api_id}`)
+        - **API Key:** {api_key_status}
+        - **Prompt Template:** `{selected_template_path}`
+        """
+        st.markdown(config_md)
     else:
-        st.warning(
-            "No prompt templates found. Please add templates to the 'prompts/' directory."
-        )
-        st.session_state.selected_template_name = None
+        st.warning("Configuration incomplete: Please select a prompt template.")
+    # Removed the separator after the summary, as it's now at the end of the expander content
 
-
-# --- Display Current Configuration ---
-# --- Display Current Configuration (User Friendly) ---
-st.markdown("---")  # Separator
-st.subheader("Current Judge Configuration")
-if st.session_state.selected_template_name:
-    selected_model_api_id = AVAILABLE_MODELS[st.session_state.selected_provider][
-        st.session_state.selected_model_name
-    ]
-    selected_template_path = AVAILABLE_TEMPLATES[
-        st.session_state.selected_template_name
-    ]
-    api_key_status = (
-        "**Provided**" if st.session_state.api_key else "**Using Environment Variable**"
-    )
-
-    config_md = f"""
-    - **Provider:** {st.session_state.selected_provider}
-    - **Model:** {st.session_state.selected_model_name} (`{selected_model_api_id}`)
-    - **API Key:** {api_key_status}
-    - **Prompt Template:** `{selected_template_path}`
-    """
-    st.markdown(config_md)
-else:
-    st.warning("Configuration incomplete: Please select a prompt template.")
-st.markdown("---")  # Separator
+# Separator moved outside the expander, before the next section
+st.markdown("---")
+# Removed duplicate/erroneous lines
 
 # --- Phase 2: Run Evaluation ---
 st.header("3. Run Evaluations")  # Renamed header
@@ -303,7 +305,7 @@ if st.session_state.get("evaluation_running", False):
     # Add progress bar and text
     progress_bar = progress_area.progress(0.0)  # Initialize with float
     progress_text = progress_area.text("Starting evaluation...")
-    log_expander = st.expander("Show Full Logs", expanded=True)  # Expand by default now
+    log_expander = st.expander("Show Full Logs", expanded=False)  # Collapsed by default
     log_placeholder = log_expander.empty()
     # Display current logs immediately
     log_placeholder.code(
@@ -480,11 +482,21 @@ if st.session_state.get("evaluation_running", False):
             # Calculate duration BEFORE cleaning up state
             end_time = time.time()
             duration_seconds = end_time - st.session_state.eval_start_time
+
+            # Format duration human-readably
+            parts = []
             hours, rem = divmod(duration_seconds, 3600)
             minutes, seconds = divmod(rem, 60)
-            st.session_state.eval_duration_str = (
-                f"{int(hours):02d} hr {int(minutes):02d} m {int(seconds):02d} s"
-            )
+            if hours >= 1:
+                parts.append(f"{int(hours)} hour{'s' if int(hours) != 1 else ''}")
+            if minutes >= 1:
+                parts.append(f"{int(minutes)} minute{'s' if int(minutes) != 1 else ''}")
+            if (
+                seconds >= 1 or not parts
+            ):  # Show seconds if > 0 or if it's the only unit
+                parts.append(f"{int(seconds)} second{'s' if int(seconds) != 1 else ''}")
+            st.session_state.eval_duration_str = ", ".join(parts)
+            # Example: "1 hour, 5 minutes, 30 seconds" or "5 minutes, 30 seconds" or "30 seconds"
             # Clean up state AFTER calculations but before final display update
             if "current_file_index" in st.session_state:
                 del st.session_state.current_file_index
@@ -532,6 +544,16 @@ if st.session_state.get("evaluation_running", False):
             time.sleep(0.1)  # Shorter sleep if queue had lines
             st.rerun()
 
+
+# --- Display Final Logs After Completion ---
+if not st.session_state.get("evaluation_running", False) and st.session_state.get(
+    "last_run_output"
+):
+    st.subheader("Final Evaluation Logs")
+    with st.expander("Show Full Logs", expanded=False):
+        st.code(
+            "\n".join(st.session_state.last_run_output[-1000:]), language="log"
+        )  # Show last 1000 lines
 
 # --- Clear Cache Logic ---
 if clear_cache_button:
@@ -668,13 +690,14 @@ def load_and_process_results(results_paths):
 
 
 # --- Load data if results paths exist ---
-# Load data only when evaluation finishes
-just_finished = (
-    st.session_state.previous_evaluation_running
-    and not st.session_state.evaluation_running
-)
-if just_finished and st.session_state.evaluation_results_paths:
+# Load data if evaluation is not running, paths exist, and data isn't already loaded
+if (
+    not st.session_state.get("evaluation_running", False)
+    and st.session_state.get("evaluation_results_paths")
+    and st.session_state.get("results_df") is None  # Only load if not already loaded
+):
     with st.spinner("Loading and processing results..."):
+        # Use the cached function to load data
         st.session_state.results_df = load_and_process_results(
             st.session_state.evaluation_results_paths
         )
@@ -683,6 +706,11 @@ if just_finished and st.session_state.evaluation_results_paths:
 if st.session_state.results_df is not None:
     df = st.session_state.results_df
     st.success(f"Loaded {len(df)} evaluation results.")
+    # Display evaluation duration if available
+    if st.session_state.get("eval_duration_str"):
+        st.info(
+            f"Total evaluation time: {st.session_state.eval_duration_str}"
+        )  # Display the new format
 
     # --- Filters ---
     st.sidebar.header("Filters")
@@ -799,13 +827,143 @@ if st.session_state.results_df is not None:
                 },
             )
             fig_rubric.update_xaxes(tickangle=45)
+            # Clean up facet titles (remove "model_id=")
+            fig_rubric.for_each_annotation(
+                lambda a: a.update(text=a.text.split("=")[-1])
+            )
             st.plotly_chart(fig_rubric, use_container_width=True)
+
+            # --- Rubric Score Distribution per Model (New Graph) ---
+            st.subheader("Rubric Score Distribution per Model")
+            # Reuse rubric_counts from previous step
+            fig_rubric_model = px.bar(
+                rubric_counts,
+                x="model_id",  # X-axis is now model
+                y="count",
+                color="score",
+                title="Rubric Score Distribution per Model",
+                labels={
+                    "model_id": "Model",
+                    "count": "Count",
+                    "score": "Score",
+                    "rubric_criterion": "Rubric Criterion",  # Label for facet
+                },
+                barmode="group",
+                facet_col="rubric_criterion",  # Facet by criterion
+                category_orders={"score": ["Yes", "Partial", "No", "N/A"]},
+                color_discrete_map={
+                    "Yes": "green",
+                    "Partial": "orange",
+                    "No": "red",
+                    "N/A": "grey",
+                },
+            )
+            fig_rubric_model.update_xaxes(tickangle=45)
+            # Clean up facet titles (remove "rubric_criterion=")
+            fig_rubric_model.for_each_annotation(
+                lambda a: a.update(text=a.text.split("=")[-1])
+            )
+            st.plotly_chart(fig_rubric_model, use_container_width=True)
+            # --- Human Review Status ---
+            st.subheader("Human Review Status")
+            review_status_col = (
+                "judge_human_review_status"  # Assuming this is the column name
+            )
+            if (
+                review_status_col in filtered_df.columns
+                and "model_id" in filtered_df.columns
+            ):
+                # --- Create Table Data First (Before fillna) ---
+                # Filter for tasks needing review (case-insensitive and strip whitespace)
+                # Apply on a copy to avoid modifying the original filtered_df used by other plots yet
+                df_for_table_filter = filtered_df.copy()
+                # Simplified filter attempt: compare lowercase directly, relying on .str to handle NaN
+                review_needed_df = df_for_table_filter[
+                    df_for_table_filter[review_status_col].str.lower() == "needs review"
+                ]
+
+                # --- Prepare Data for Graph (Now fillna) ---
+                # Use a separate copy for graph calculation to keep original filtered_df clean if needed elsewhere
+                df_for_graph = filtered_df.copy()
+                df_for_graph[review_status_col] = df_for_graph[
+                    review_status_col
+                ].fillna("N/A")
+
+                review_counts = (
+                    df_for_graph.groupby(["model_id", review_status_col])
+                    .size()
+                    .reset_index(name="count")
+                )
+
+                # Define order and colors using the actual values from the data
+                category_orders = {review_status_col: ["Needs Review", "Not Required", "N/A"]} # Use actual values
+                color_map = {"Needs Review": "orange", "Not Required": "lightblue", "N/A": "grey"} # Use actual values
+
+                # --- Create Graph ---
+                fig_review = px.bar(
+                    review_counts,  # Use counts derived from df_for_graph (with N/A)
+                    x="model_id",
+                    y="count",
+                    color=review_status_col,
+                    title="Human Review Status Count per Model",
+                    labels={
+                        "model_id": "Model",
+                        "count": "Number of Tasks",
+                        review_status_col: "Needs Human Review?",
+                    },
+                    barmode="group",
+                    category_orders=category_orders,
+                    color_discrete_map=color_map,
+                )
+                st.plotly_chart(fig_review, use_container_width=True)
+
+                # --- Human Review Explorer ---
+                st.subheader("Tasks Flagged for Human Review")
+                # Display the review_needed_df created *before* fillna
+                if not review_needed_df.empty:
+                    st.write(
+                        f"Found {len(review_needed_df)} evaluations flagged for human review."
+                    )
+                    # Select relevant columns to display
+                    review_cols_to_show = {
+                        "task_id": "Task ID",
+                        "model_id": "Model",
+                        "subject": "Subject",
+                        "complexity": "Complexity",
+                        "aggregated_score": "Aggregated Score",
+                        review_status_col: "Review Status",
+                        "judge_justification": "Judge Justification",  # Assuming this column exists
+                        "prompt": "Prompt",
+                        "model_response": "Model Response",
+                    }
+                    # Filter display_cols to only those present in the dataframe
+                    actual_review_cols = [
+                        col
+                        for col in review_cols_to_show.keys()
+                        if col in review_needed_df.columns
+                    ]
+                    # Display the pre-filtered dataframe
+                    st.dataframe(
+                        review_needed_df[actual_review_cols].rename(
+                            columns=review_cols_to_show
+                        )
+                    )
+                else:
+                    st.info(
+                        "No tasks flagged for human review based on current filters."
+                    )
+
+            else:
+                st.warning(
+                    f"Could not generate Human Review Status chart/explorer. Required columns ('model_id', '{review_status_col}') not found."
+                )
+        # This else corresponds to the `if rubric_cols and "model_id" in filtered_df.columns:` check
         else:
             st.warning(
-                "Could not generate Rubric Score Analysis. Rubric score columns not found or 'model_id' missing."
+                "Could not generate Rubric Score Analysis / Human Review sections. Rubric score columns not found or 'model_id' missing."
             )
 
-        # --- Task-Level Explorer ---
+        # --- Task-Level Explorer (Should be outside the rubric/review if/else, but inside the main results display else) ---
         st.subheader("Task-Level Explorer")
         display_cols = {
             "task_id": "Task ID",

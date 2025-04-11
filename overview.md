@@ -28,49 +28,106 @@ The system follows a pipeline/workflow architecture:
 graph LR
 
   subgraph CogniBench System
-    direction LR // Maintain the left-to-right flow within the main system box
+    direction LR
 
+    %% Core Workflow Components
     A[Input Data Intake] --> B(Preprocessing);
-    %% Connects B to the Evaluation Core subgraph box
-    B --> C["Evaluation Core (LLM Judge)"]; 
-    %% Connects the Evaluation Core subgraph box to D
-    C --> D[Post-processing & Aggregation]; 
-    F[Data Storage] <--> A;
-    F <--> E;
-    G[Workflow Orchestrator] -- Manages --> A;
-    G -- Manages --> B;
-    %% Connects G to manage the Evaluation Core subgraph box
-    G -- Manages --> C; 
-    G -- Manages --> D;
-    G -- Manages --> E;
-    H[API Layer] -- Triggers --> G;
-    H -- Receives --> E;
+    B --> C["Evaluation Core (LLM Judge)"];
+    C --> D[Post-processing & Aggregation];
+    D --> E[Output Generation];
 
-    %% Define the inner subgraph C (Evaluation Core)
+    %% Data Storage & Logging
+    %% Intake reads ingested
+    F["Data Storage (.json, .jsonl)"] <--> A; 
+    %% Output writes results
+    F <--> E; 
+    %% Orchestrator writes logs
+    LOG["Log Storage (.log)"] <--> G; 
+
+    %% Orchestration & UI
+    %% Script reads ingested data path
+    G["Batch Script Orchestrator (`run_batch_evaluation.py`)"] -- Manages --> A; 
+    %% Script calls evaluation workflow
+    G -- Calls --> C; 
+    %% Script combines results
+    G -- Manages --> D; 
+    %% Script defines output paths
+    G -- Manages --> E; 
+    %% UI runs the script
+    I["Streamlit UI (`streamlit_app/app.py`)"] -- Triggers --> G;
+    %% UI reads final_results.json
+    I -- Reads Results --> F; 
+
+    %% Evaluation Core Details
     subgraph "Evaluation Core (LLM Judge)"
         direction LR
         C1[Prompt Constructor] --> C2(Judge LLM Invocation);
         C2 --> C3[Response Parser];
     end
 
-    %% Apply styles to nodes and the inner subgraph box
-    %% Data Storage - Medium Purple (#9575cd)
+    %% Optional API Layer (Not used by Streamlit App)
+    H[(API Layer)];
+
+    %% Styling
     style F fill:#9575cd,stroke:#333,stroke-width:2px
-    %% Evaluation Core - Medium Blue (#64b5f6)
+    style LOG fill:#b0bec5,stroke:#333,stroke-width:1px
     style C fill:#64b5f6,stroke:#333,stroke-width:2px
-    %% API Layer - Medium Teal (#4db6ac)
-    style H fill:#4db6ac,stroke:#333,stroke-width:2px
-    %% Workflow Orchestrator - Medium Amber (#ffca28)
+    %% Dashed border for optional/unused
+    style H fill:#4db6ac,stroke:#333,stroke-width:1px,stroke-dasharray: 5 5
     style G fill:#ffca28,stroke:#333,stroke-width:2px
-    %% Streamlit UI - Light Green (#a5d6a7)
-    I[Streamlit UI] -- Interacts --> H;
     style I fill:#a5d6a7,stroke:#333,stroke-width:2px
   end
 ```
 
-*Note: This diagram represents the core evaluation workflow. Batch processing involves scripts that orchestrate this workflow for multiple inputs. A Streamlit UI provides a user-friendly interface.*
+*Note: This diagram shows the main components and their relationships. The Streamlit UI interacts directly with the Batch Script Orchestrator, not the optional API Layer.*
 
-## 4. Component Breakdown
+## 4. Detailed Workflow (Streamlit UI)
+
+The following diagram illustrates the sequence of operations when using the Streamlit UI:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI as Streamlit UI (`app.py`)
+    participant BatchScript as `run_batch_evaluation.py`
+    participant IngestScript as `ingest_rlhf_data.py`
+    participant EvalScript as `run_single_evaluation.py`
+    participant CoreWorkflow as `core/workflow.py`
+    participant LLMClient as LLM Clients
+    participant DataStore as Data Storage (`data/`, `logs/`)
+
+    User->>+UI: Upload Raw JSON File(s)
+    User->>UI: Configure Judge (Model, Template, API Key)
+    User->>+UI: Click "Run Evaluations"
+    UI->>+BatchScript: Execute via subprocess (pass file paths, config)
+    BatchScript->>+IngestScript: Execute (pass raw file path)
+    IngestScript->>DataStore: Write `_ingested_*.json`
+    IngestScript-->>-BatchScript: Return ingested file path (stdout)
+    BatchScript->>+EvalScript: Execute (pass ingested path, config, output path)
+    EvalScript->>+CoreWorkflow: Run evaluation loop
+    loop For Each Task/Model
+        CoreWorkflow->>LLMClient: Invoke Judge LLM
+        LLMClient-->>CoreWorkflow: Raw Judge Response
+        CoreWorkflow->>DataStore: Append to `_evaluations.jsonl`
+    end
+    CoreWorkflow-->>-EvalScript: Complete
+    EvalScript-->>-BatchScript: Complete
+    BatchScript->>BatchScript: Format `_evaluations.jsonl` -> `_evaluations_formatted.json`
+    BatchScript->>DataStore: Read `_ingested_*.json`
+    BatchScript->>DataStore: Read `_evaluations_formatted.json`
+    BatchScript->>BatchScript: Combine Data
+    BatchScript->>DataStore: Write `_final_results.json`
+    BatchScript->>UI: Print `_final_results.json` path (stdout)
+    BatchScript-->>-UI: Process finishes
+    UI->>UI: Capture results path from stdout
+    UI->>+DataStore: Read `_final_results.json`
+    DataStore-->>-UI: Return results data
+    UI->>UI: Process data (Pandas)
+    UI->>UI: Generate Graphs (Plotly) & Tables
+    UI-->>-User: Display Results & Visualizations
+```
+
+## 5. Component Breakdown
 
 * **A. Input Data Intake (Conceptual - Handled by `run_single_evaluation.py`):**
   * **Function:** Reads pre-ingested data (typically from `*_ingested_*.json` files generated by `ingest_rlhf_data.py`). This data includes `task_id`, `prompt`, `ideal_response`, `final_answer`, `model_responses` (list), `human_evaluations` (list), and `metadata`.
@@ -137,7 +194,7 @@ graph LR
     * `POST /evaluate`: Submit a new evaluation request (Payload: Prompt, Model Response, Ideal Response, Correct Answer). Returns a job ID.
     * `GET /evaluate/{job_id}`: Check the status and retrieve the results of an evaluation.
 
-## 5. Data Flow
+## 6. Data Flow
 
 1. User/System submits evaluation data via `API Layer`.
 2. `API Layer` triggers `Workflow Orchestrator`, passing data to `Input Data Intake`.
@@ -149,7 +206,7 @@ graph LR
 8. `Output Generation` creates report formats (JSON, MD) and stores them in `Data Storage`.
 9. `API Layer` retrieves the final report from `Data Storage` or the orchestrator upon request (`GET /evaluate/{job_id}`).
 
-## 6. Technology Stack Choices (Example)
+## 7. Technology Stack Choices (Example)
 
 * **Programming Language:** Python (due to excellent data science, ML/LLM libraries, and web frameworks).
 * **LLM Judge:** GPT-4 / GPT-4o, Claude 3 Opus, Gemini 1.5 Pro (choose based on performance, context window, cost, API features like JSON mode/Function Calling).
@@ -158,7 +215,7 @@ graph LR
 * **Data Storage:** PostgreSQL (for structured data and relational integrity) or MongoDB (if schema flexibility is paramount).
 * **Deployment:** Docker containers, orchestrated via Kubernetes or deployed on cloud platforms (AWS, GCP, Azure) using services like SageMaker, Vertex AI, Azure ML, or container services (ECS, EKS, GKE, AKS).
 
-## 7. Key Design Considerations & Trade-offs
+## 8. Key Design Considerations & Trade-offs
 
 * **Prompt Engineering:** *Critical Path.* Requires iterative refinement. Prompts must be unambiguous, include the full rubric, and clearly specify the desired output format. Consider using Few-Shot examples within the prompt.
 * **Judge LLM Choice:** Stronger models (GPT-4o, Opus) yield better reasoning but are slower/more expensive. Need to balance quality vs. cost/latency.
@@ -171,17 +228,6 @@ graph LR
 * **Rubric Evolution:** Design the system (especially prompt construction and parsing) to be adaptable if the L1/L2 rubric needs modification later. Store the rubric version used for each evaluation.
 * **Security:** If handling sensitive/proprietary prompts or model outputs, ensure appropriate data handling, access controls, and potentially use models with stronger data privacy guarantees (e.g., Azure OpenAI).
 
-## 8. Deployment Strategy (Initial)
-
-1. Develop locally using Docker containers for each service.
-2. Deploy to a cloud environment (e.g., AWS).
-    * API Layer -> API Gateway + Lambda/ECS/EKS.
-    * Workflow Orchestrator -> Step Functions / Managed Prefect/Airflow / ECS/EKS.
-    * Data Storage -> RDS (PostgreSQL) / DocumentDB (MongoDB).
-    * LLM Calls -> Direct API calls to OpenAI/Anthropic/Google.
-3. Implement CI/CD pipelines for automated testing and deployment.
-4. Set up monitoring and logging (e.g., CloudWatch, Datadog).
-
 ## 9. Future Enhancements
 
 * **Fine-tuning the Judge LLM:** Use human-corrected evaluations as training data to fine-tune a base LLM for the specific task of rubric-based math evaluation within CogniBench, potentially improving accuracy and consistency.
@@ -189,4 +235,10 @@ graph LR
 * **Visual Understanding:** Integrate capabilities into CogniBench to analyze diagrams or plots if they are part of the prompt or response (requires multi-modal models).
 * **Automated Ideal Response Generation (Research):** Explore using powerful LLMs within the CogniBench workflow to *generate* the `IDEAL RESPONSE` as a starting point for human experts, speeding up the process.
 * **Integration with L0:** Tightly integrate the L1 Judge output from CogniBench back into the L0 Golden Prompt Discovery process for richer failure analysis.
-* **User Interface (In Progress):** A Streamlit application (`streamlit_app/`) is being developed to provide a user-friendly interface for uploading batch files, configuring evaluations, running the process, and visualizing results.
+* **User Interface (Streamlit):** Further enhance the Streamlit application (`streamlit_app/`) for better analysis and usability:
+  * **Interactive Filtering:** Allow clicking on graph elements (e.g., bars) to filter the data tables below.
+  * **Detailed Task Modal:** Implement a pop-up or dedicated view to show all details (prompt, responses, full evaluation) for a selected task row.
+  * **Side-by-Side Comparison:** Add a mode to select two models and compare their responses and evaluations directly on the same tasks.
+  * **Results Export:** Add functionality to export the filtered data from the explorers (Task-Level, Human Review) to CSV/Excel.
+  * **Configuration Presets:** Allow saving and loading common LLM Judge configurations.
+  * **Historical Run Comparison:** Develop features to load and compare results across different evaluation runs (multiple `_final_results.json` files).
