@@ -140,17 +140,26 @@ def run_evaluation_workflow(
         logger.debug(
             f"Workflow Step: Initializing LLM client ({judge_llm_provider})..."
         )  # Changed to debug
-        if judge_llm_provider == "openai":
+        # Convert provider name to lowercase for case-insensitive comparison
+        provider_lower = judge_llm_provider.lower()
+        if provider_lower == "openai":
             try:
                 llm_client = OpenAIClient()  # Assumes API key in env/.env
             except Exception as e:
                 workflow_result["message"] = f"Failed to initialize OpenAI client: {e}"
                 logger.error(workflow_result["message"], exc_info=True)
                 return workflow_result
+        # Add elif blocks for other providers, comparing with lowercase
+        # elif provider_lower == "anthropic":
+        #     # Initialize Anthropic client
+        #     pass
+        # elif provider_lower == "google":
+        #     # Initialize Google client
+        #     pass
         else:
-            # Add support for other clients here if needed
+            # Handle unsupported providers
             workflow_result["message"] = (
-                f"Unsupported LLM provider '{judge_llm_provider}'."
+                f"Unsupported LLM provider '{judge_llm_provider}'." # Original case in error message
             )
             logger.error(workflow_result["message"])
             return workflow_result
