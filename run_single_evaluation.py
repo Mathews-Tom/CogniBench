@@ -2,14 +2,15 @@
 # Version: 0.1 (Phase 1)
 
 import argparse
-import argparse
 import json
+import logging  # Import logging
 import sys
-import logging # Import logging
 from pathlib import Path
-from tqdm import tqdm # Import tqdm
+
 # Assuming workflow and config loading utilities exist
 from core.workflow import run_evaluation_workflow
+from tqdm import tqdm  # Import tqdm
+
 # Assuming log_setup is in core directory relative to project root
 try:
     from core.log_setup import setup_logging
@@ -21,8 +22,11 @@ except ImportError:
         from core.log_setup import setup_logging
     except ImportError:
         # If setup still fails, provide a basic config
-        logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-        def setup_logging(): pass # No-op function
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+        def setup_logging():
+            pass  # No-op function
+
 
 # Get logger for this module
 logger = logging.getLogger(__name__)
@@ -37,10 +41,13 @@ def load_config(config_path: Path):
     # Add error handling
     try:
         import yaml
-        with config_path.open('r', encoding='utf-8') as f:
+
+        with config_path.open("r", encoding="utf-8") as f:
             return yaml.safe_load(f)
     except ImportError:
-        logger.error("PyYAML is required to load config.yaml. Please install it (`uv pip install pyyaml`).")
+        logger.error(
+            "PyYAML is required to load config.yaml. Please install it (`uv pip install pyyaml`)."
+        )
         sys.exit(1)
     except Exception as e:
         logger.error("Error loading config file %s", config_path, exc_info=True)
@@ -58,36 +65,44 @@ def main(args):
 
     config = load_config(config_path)
     if not config:
-        sys.exit(1) # Error handled in load_config
+        sys.exit(1)  # Error handled in load_config
 
     try:
         with input_data_path.open("r", encoding="utf-8") as f:
             evaluation_tasks = json.load(f)
     except Exception as e:
-        logger.error("Error loading or parsing input data file %s", input_data_path, exc_info=True)
+        logger.error(
+            "Error loading or parsing input data file %s",
+            input_data_path,
+            exc_info=True,
+        )
         sys.exit(1)
 
     all_results = []
     overall_success = True
 
-    logger.debug("--- Starting Evaluation Run ---") # Changed to debug
-    logger.debug("Config: %s", config_path) # Changed to debug
-    logger.debug("Input Data: %s", input_data_path) # Changed to debug
+    logger.debug("--- Starting Evaluation Run ---")  # Changed to debug
+    logger.debug("Config: %s", config_path)  # Changed to debug
+    logger.debug("Input Data: %s", input_data_path)  # Changed to debug
 
     total_tasks = len(evaluation_tasks)
     logger.info(f"Starting evaluation for {total_tasks} tasks.")
 
     # Wrap the main loop with tqdm for progress bar, use enumerate for index
-    for i, task in enumerate(tqdm(evaluation_tasks, desc="Evaluating Tasks", file=sys.stdout)): # Direct tqdm to stdout
+    for i, task in enumerate(
+        tqdm(evaluation_tasks, desc="Evaluating Tasks", file=sys.stdout)
+    ):  # Direct tqdm to stdout
         # Print progress update for Streamlit to capture
-        print(f"PROGRESS: Task {i+1}/{total_tasks}", file=sys.stdout, flush=True)
+        print(f"PROGRESS: Task {i + 1}/{total_tasks}", file=sys.stdout, flush=True)
         task_id = task.get("task_id", "unknown_task")
         prompt_text = task.get("prompt")
         ideal_response_text = task.get("ideal_response")
         model_responses = task.get("model_responses", [])
 
         if not prompt_text or not ideal_response_text:
-            logger.warning("Skipping task %s due to missing prompt or ideal response.", task_id)
+            logger.warning(
+                "Skipping task %s due to missing prompt or ideal response.", task_id
+            )
             continue
 
         # Logging within the loop might be too verbose with tqdm, consider logging level adjustments
@@ -98,7 +113,11 @@ def main(args):
             model_id = model_response.get("model_id", "unknown_model")
 
             if not response_text:
-                logger.warning("Skipping response from model %s in task %s due to missing text.", model_id, task_id)
+                logger.warning(
+                    "Skipping response from model %s in task %s due to missing text.",
+                    model_id,
+                    task_id,
+                )
                 continue
 
             # logger.debug("  - Evaluating response from Model: %s", model_id)
@@ -109,10 +128,12 @@ def main(args):
                 prompt=prompt_text,
                 response=response_text,
                 ideal_response=ideal_response_text,
-                config=config, # Pass loaded config
-                task_id=task_id, # Pass identifiers for context
+                config=config,  # Pass loaded config
+                task_id=task_id,  # Pass identifiers for context
                 model_id=model_id,
-                output_jsonl_path=Path(args.output_jsonl) if args.output_jsonl else None # Pass output path
+                output_jsonl_path=Path(args.output_jsonl)
+                if args.output_jsonl
+                else None,  # Pass output path
             )
             # --- End workflow call ---
 
@@ -121,36 +142,53 @@ def main(args):
 
             if result.get("status") != "success":
                 overall_success = False
-                logger.error("    Workflow Error for task %s, model %s: %s", task_id, model_id, result.get('message'))
-
+                logger.error(
+                    "    Workflow Error for task %s, model %s: %s",
+                    task_id,
+                    model_id,
+                    result.get("message"),
+                )
 
     # --- Save overall results (optional) ---
     # Example: save to a file specified in config or a default location
-    results_output_path_str = config.get("output_options", {}).get("results_file", "data/evaluation_results.json")
+    results_output_path_str = config.get("output_options", {}).get(
+        "results_file", "data/evaluation_results.json"
+    )
     results_output_path = Path(results_output_path_str)
     results_output_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         with results_output_path.open("w", encoding="utf-8") as f:
             json.dump(all_results, f, indent=2)
-        logger.debug("--- Overall results saved to: %s ---", results_output_path) # Changed to debug
+        logger.debug(
+            "--- Overall results saved to: %s ---", results_output_path
+        )  # Changed to debug
     except Exception as e:
-        logger.error("Error saving overall results to %s", results_output_path, exc_info=True)
-
+        logger.error(
+            "Error saving overall results to %s", results_output_path, exc_info=True
+        )
 
     if not overall_success:
         logger.error("--- Evaluation Run Completed with Errors ---")
-        sys.exit(1) # Exit with error if any workflow failed
+        sys.exit(1)  # Exit with error if any workflow failed
     else:
         logger.info("--- Evaluation Run Completed Successfully ---")
 
 
 if __name__ == "__main__":
-    setup_logging() # Setup logging
+    setup_logging()  # Setup logging
     logger.info("Starting CogniBench evaluation script.")
-    parser = argparse.ArgumentParser(description="Run CogniBench evaluation on ingested data.")
-    parser.add_argument("--input-data", required=True, help="Path to the ingested JSON data file.")
-    parser.add_argument("--config", required=True, help="Path to the YAML configuration file.")
-    parser.add_argument("--output-jsonl", help="Path to the output JSONL file for detailed results.")
+    parser = argparse.ArgumentParser(
+        description="Run CogniBench evaluation on ingested data."
+    )
+    parser.add_argument(
+        "--input-data", required=True, help="Path to the ingested JSON data file."
+    )
+    parser.add_argument(
+        "--config", required=True, help="Path to the YAML configuration file."
+    )
+    parser.add_argument(
+        "--output-jsonl", help="Path to the output JSONL file for detailed results."
+    )
     # Add other potential arguments here
 
     args = parser.parse_args()

@@ -191,30 +191,71 @@ with st.expander("Configuration Details", expanded=False): # Simplified label, m
                 "No prompt templates found. Please add templates to the 'prompts/' directory."
             )
             st.session_state.selected_template_name = None
-    # --- Display Current Configuration (Moved Inside Expander) ---
-    st.markdown("---")  # Separator inside expander
-    st.subheader("Current Judge Configuration")
-    if st.session_state.selected_template_name:
-        selected_model_api_id = AVAILABLE_MODELS[st.session_state.selected_provider][
-            st.session_state.selected_model_name
-        ]
-        selected_template_path = AVAILABLE_TEMPLATES[
-            st.session_state.selected_template_name
-        ]
-        api_key_status = (
-            "**Provided**" if st.session_state.api_key else "**Using Environment Variable**"
+
+        # --- Button to View Template ---
+        view_template_button = st.button(
+            "View Selected Prompt Template",
+            key="view_template_btn",
+            disabled=not st.session_state.selected_template_name or not AVAILABLE_TEMPLATES,
         )
 
-        config_md = f"""
-        - **Provider:** {st.session_state.selected_provider}
-        - **Model:** {st.session_state.selected_model_name} (`{selected_model_api_id}`)
-        - **API Key:** {api_key_status}
-        - **Prompt Template:** `{selected_template_path}`
-        """
-        st.markdown(config_md)
-    else:
-        st.warning("Configuration incomplete: Please select a prompt template.")
-    # Removed the separator after the summary, as it's now at the end of the expander content
+        if view_template_button:
+            if st.session_state.selected_template_name and AVAILABLE_TEMPLATES:
+                try:
+                    selected_template_rel_path = AVAILABLE_TEMPLATES[
+                        st.session_state.selected_template_name
+                    ]
+                    selected_template_abs_path = COGNIBENCH_ROOT / selected_template_rel_path
+                    if selected_template_abs_path.is_file():
+                        template_content = selected_template_abs_path.read_text()
+
+                        @st.dialog(f"Prompt Template: {st.session_state.selected_template_name}")
+                        def show_template_dialog():
+                            st.text_area(
+                                "Template Content",
+                                value=template_content,
+                                height=400, # Increased height for dialog
+                                disabled=True,
+                                key="dialog_template_content_display",
+                            )
+                            if st.button("Close", key="close_template_dialog"):
+                                st.rerun() # Close dialog by rerunning
+
+                        show_template_dialog() # Call the dialog function
+
+                    else:
+                        # Display warning within the main expander if file not found
+                        st.warning(f"Selected template file not found: {selected_template_abs_path}")
+                except Exception as e:
+                     # Display error within the main expander if reading fails
+                    st.error(f"Error reading template file: {e}")
+            else:
+                 # Display warning within the main expander if no template selected
+                st.warning("Please select a template first.")
+
+# --- Display Current Configuration Summary (Moved Outside Expander) ---
+st.subheader("Current Judge Configuration Summary")
+if st.session_state.selected_template_name:
+    selected_model_api_id = AVAILABLE_MODELS[st.session_state.selected_provider][
+        st.session_state.selected_model_name
+    ]
+    selected_template_path = AVAILABLE_TEMPLATES[
+        st.session_state.selected_template_name
+    ]
+    api_key_status = (
+        "**Provided**" if st.session_state.api_key else "**Using Environment Variable**"
+    )
+
+    # Improved formatting using markdown with line breaks
+    st.markdown(f"""
+**Provider:** `{st.session_state.selected_provider}`\n
+**Model:** `{st.session_state.selected_model_name}` (`{selected_model_api_id}`)\n
+**API Key:** {api_key_status}\n
+**Prompt Template:** `{selected_template_path}`
+""")
+else:
+    st.warning("Configuration incomplete: Please select a provider, model, and prompt template in the 'Configuration Details' section above.")
+
 
 # Separator moved outside the expander, before the next section
 st.markdown("---")
