@@ -15,14 +15,21 @@ Evaluating LLMs on complex reasoning tasks, especially in specialized fields lik
 
 * **LLM-as-a-Judge Evaluation:** Leverages a powerful LLM to assess the quality and correctness of other LLMs' responses.
 * **Specialized Domain Focus:** Tailored for evaluating performance on advanced Math & STE problems.
-* **Modular Workflow:** Clearly defined steps for preprocessing, response generation, evaluation, and postprocessing.
-* **Extensible LLM Clients:** Easily integrate different LLM APIs (e.g., OpenAI).
+* **Modular Workflow:** Clearly defined steps for preprocessing, LLM invocation, response parsing, evaluation, and postprocessing.
+* **Configurable Evaluation:**
+  * Judge LLM (provider, model), prompt template, expected rubric criteria, and allowed scores are defined in `config.yaml`.
+  * Support structure for multiple LLM providers (OpenAI, Anthropic, Google placeholders).
+  * Configuration validation on script startup.
+* **Robust Answer Verification:**
+  * Enhanced answer extraction patterns (including LaTeX `$$...$$`).
+  * Mathematical equivalence checking using `sympy` (if installed) for more accurate verification of math/symbolic answers, with fallback to string comparison.
+* **Improved Error Handling:** Response parser reports all validation errors found, not just the first.
 * **Data Management:** Structured way to handle prompts, ideal responses, model responses, and evaluation results. Output files are organized into timestamped subdirectories for each batch run.
 * **Batch Processing:** Includes scripts for ingesting raw data and running evaluations on entire batches.
 * **Combined Results:** Generates a final JSON file grouping results by task for easier comparison across models.
 * **Configurable Logging:** Timestamped log files and configurable console output levels.
-* **API Interface:** (Optional) Provides an API for programmatic interaction.
-* **Streamlit UI:** A user-friendly interface (`streamlit_app/`) for uploading batch files, configuring the judge (collapsible section with button to view selected prompt template in a dialog), viewing the configuration summary below the details, running evaluations (with human-readable duration display), viewing persistent logs, and visualizing results (overall performance, rubric breakdown per criterion/model, human review status counts, and explorers for all tasks and those needing review).
+* **API Interface:** (Optional) Provides an API for programmatic interaction (loads config on startup).
+* **Streamlit UI:** A user-friendly interface (`streamlit_app/`) for uploading batch files, configuring the judge (provider, model, template, API key), viewing the configuration summary, running evaluations (with progress bar and live log output), viewing persistent logs, and visualizing results (overall performance, rubric breakdown per criterion/model, human review status counts, and explorers for all tasks and those needing review).
 
 ## Project Structure
 
@@ -35,7 +42,7 @@ CogniBench/
 │   ├── output_writer.py  # Handles writing evaluation results
 │   ├── postprocessing.py # Logic for processing results after evaluation
 │   ├── preprocessing.py  # Logic for preparing data before evaluation
-│   ├── prompt_templates.py # Templates for evaluation prompts
+│   ├── prompt_templates.py # (Legacy - templates now loaded via path in config)
 │   ├── response_parser.py # Parses LLM responses
 │   └── workflow.py       # Main evaluation workflow orchestration
 ├── data/                 # Default directory for evaluation outputs
@@ -83,6 +90,8 @@ CogniBench/
     ```
 
     *(Note: Check `pyproject.toml` for the exact dependency management setup. If `requirements.txt` doesn't exist, you might need `uv pip install .`)*
+    * For enhanced mathematical answer verification, install `sympy`: `uv pip install sympy`
+    * Configuration loading requires `PyYAML`: `uv pip install pyyaml`
 
 ## Usage
 
@@ -94,9 +103,9 @@ This script processes a JSON file already in the CogniBench ingested format (lik
 python3 run_single_evaluation.py --input-data <path_to_ingested_data.json> --config <path_to_config.yaml> --output-jsonl <path_to_output.jsonl>
 ```
 
-*   `--input-data`: Path to the JSON file containing tasks, prompts, ideal responses, and model responses.
-*   `--config`: Path to the YAML configuration file (e.g., `config.yaml`).
-*   `--output-jsonl`: Path where the detailed evaluation results (in JSON Lines format) will be saved.
+* `--input-data`: Path to the JSON file containing tasks, prompts, ideal responses, and model responses.
+* `--config`: Path to the YAML configuration file (e.g., `config.yaml`).
+* `--output-jsonl`: Path where the detailed evaluation results (in JSON Lines format) will be saved.
 
 **Running a Batch Evaluation (End-to-End):**
 
@@ -106,17 +115,18 @@ This script handles the full workflow: ingesting raw data, running evaluations, 
 python3 scripts/run_batch_evaluation.py <path_to_raw_batch_file.json> --config <path_to_config.yaml>
 ```
 
-*   `<path_to_raw_batch_file.json>`: Path to the input file containing the raw data (e.g., RLHF format).
-*   `--config`: Path to the YAML configuration file (e.g., `config.yaml`).
+* `<path_to_raw_batch_file.json>`: Path to the input file containing the raw data (e.g., RLHF format).
+* `--config`: Path to the YAML configuration file (e.g., `config.yaml`).
 
 This script will:
-1.  Create a timestamped subdirectory in `data/` (e.g., `data/Batch-XXX_YYYYMMDD_HHMM/`).
-2.  Run the ingestion script, saving the ingested data JSON inside the subdirectory.
-3.  Run the evaluation script (`run_single_evaluation.py`) using the ingested data, saving the detailed results (`_evaluations.jsonl`) inside the subdirectory.
-4.  Create a formatted JSON version (`_evaluations_formatted.json`) inside the subdirectory.
-5.  Create a final combined results file (`_final_results.json`) inside the subdirectory, grouping results by task ID.
-6.  Log detailed output to a timestamped file in `logs/`.
-7.  Display a `tqdm` progress bar on the console during the evaluation step.
+
+1. Create a timestamped subdirectory in `data/` (e.g., `data/Batch-XXX_YYYYMMDD_HHMM/`).
+2. Run the ingestion script, saving the ingested data JSON inside the subdirectory.
+3. Run the evaluation script (`run_single_evaluation.py`) using the ingested data, saving the detailed results (`_evaluations.jsonl`) inside the subdirectory.
+4. Create a formatted JSON version (`_evaluations_formatted.json`) inside the subdirectory.
+5. Create a final combined results file (`_final_results.json`) inside the subdirectory, grouping results by task ID.
+6. Log detailed output to a timestamped file in `logs/`.
+7. Display a `tqdm` progress bar on the console during the evaluation step.
 
 ## Contributing
 

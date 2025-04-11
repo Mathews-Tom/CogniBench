@@ -8,6 +8,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from typing import Any, Dict, Optional  # Added imports
 
 import pandas as pd
 import plotly.express as px
@@ -26,7 +27,7 @@ st.set_page_config(layout="wide", page_title="CogniBench Runner")
 st.title("CogniBench Evaluation Runner")
 
 # --- Phase 1: Input Selection ---
-st.header("1. Upload Raw RLHF JSON Data file(s)") # Renamed header
+st.header("1. Upload Raw RLHF JSON Data file(s)")  # Renamed header
 
 uploaded_files = st.file_uploader(
     "Select CogniBench JSON batch file(s)",
@@ -46,7 +47,7 @@ else:
 # st.write("*(Folder selection coming soon)*")
 
 # --- Phase 1.5: Configuration Options ---
-st.header("2. Configure LLM Judge") # Add main header for section 2
+st.header("2. Configure LLM Judge")  # Add main header for section 2
 
 # Define available models based on the plan
 # Use requested provider names as keys
@@ -130,7 +131,9 @@ if "output_queue" not in st.session_state:
 
 
 # --- Configuration Widgets (within Expander) ---
-with st.expander("Configuration Details", expanded=False): # Simplified label, main header is above
+with st.expander(
+    "Configuration Details", expanded=False
+):  # Simplified label, main header is above
     col_config1, col_config2 = st.columns(2)
 
     with col_config1:
@@ -138,7 +141,9 @@ with st.expander("Configuration Details", expanded=False): # Simplified label, m
         st.session_state.selected_provider = st.selectbox(
             "Select LLM Provider",
             options=list(AVAILABLE_MODELS.keys()),
-            index=list(AVAILABLE_MODELS.keys()).index(st.session_state.selected_provider),
+            index=list(AVAILABLE_MODELS.keys()).index(
+                st.session_state.selected_provider
+            ),
             key="provider_select",  # Use key to avoid issues with re-rendering
         )
 
@@ -196,7 +201,8 @@ with st.expander("Configuration Details", expanded=False): # Simplified label, m
         view_template_button = st.button(
             "View Selected Prompt Template",
             key="view_template_btn",
-            disabled=not st.session_state.selected_template_name or not AVAILABLE_TEMPLATES,
+            disabled=not st.session_state.selected_template_name
+            or not AVAILABLE_TEMPLATES,
         )
 
         if view_template_button:
@@ -205,32 +211,38 @@ with st.expander("Configuration Details", expanded=False): # Simplified label, m
                     selected_template_rel_path = AVAILABLE_TEMPLATES[
                         st.session_state.selected_template_name
                     ]
-                    selected_template_abs_path = COGNIBENCH_ROOT / selected_template_rel_path
+                    selected_template_abs_path = (
+                        COGNIBENCH_ROOT / selected_template_rel_path
+                    )
                     if selected_template_abs_path.is_file():
                         template_content = selected_template_abs_path.read_text()
 
-                        @st.dialog(f"Prompt Template: {st.session_state.selected_template_name}")
+                        @st.dialog(
+                            f"Prompt Template: {st.session_state.selected_template_name}"
+                        )
                         def show_template_dialog():
                             st.text_area(
                                 "Template Content",
                                 value=template_content,
-                                height=400, # Increased height for dialog
+                                height=400,  # Increased height for dialog
                                 disabled=True,
                                 key="dialog_template_content_display",
                             )
                             if st.button("Close", key="close_template_dialog"):
-                                st.rerun() # Close dialog by rerunning
+                                st.rerun()  # Close dialog by rerunning
 
-                        show_template_dialog() # Call the dialog function
+                        show_template_dialog()  # Call the dialog function
 
                     else:
                         # Display warning within the main expander if file not found
-                        st.warning(f"Selected template file not found: {selected_template_abs_path}")
+                        st.warning(
+                            f"Selected template file not found: {selected_template_abs_path}"
+                        )
                 except Exception as e:
-                     # Display error within the main expander if reading fails
+                    # Display error within the main expander if reading fails
                     st.error(f"Error reading template file: {e}")
             else:
-                 # Display warning within the main expander if no template selected
+                # Display warning within the main expander if no template selected
                 st.warning("Please select a template first.")
 
 # --- Display Current Configuration Summary (Moved Outside Expander) ---
@@ -254,7 +266,9 @@ if st.session_state.selected_template_name:
 **Prompt Template:** `{selected_template_path}`
 """)
 else:
-    st.warning("Configuration incomplete: Please select a provider, model, and prompt template in the 'Configuration Details' section above.")
+    st.warning(
+        "Configuration incomplete: Please select a provider, model, and prompt template in the 'Configuration Details' section above."
+    )
 
 
 # Separator moved outside the expander, before the next section
@@ -277,6 +291,68 @@ with col1:
 
 with col2:
     clear_cache_button = st.button("🧹 Clear LLM Cache")
+
+
+# --- Config Validation Helper ---
+# (Similar to the one added in other scripts)
+def validate_config(config: Dict[str, Any]) -> bool:
+    """Performs basic validation on the loaded configuration dictionary."""
+    if not config:  # Check if config is None or empty
+        st.error("Config validation failed: Configuration data is empty.")
+        return False
+
+    required_sections = ["llm_client", "evaluation_settings", "output_options"]
+    for section in required_sections:
+        if section not in config or not isinstance(config[section], dict):
+            st.error(
+                f"Config validation failed: Missing or invalid section '{section}'."
+            )
+            return False
+
+    eval_settings = config["evaluation_settings"]
+    required_eval_keys = [
+        "judge_model",
+        "prompt_template",
+        "expected_criteria",
+        "allowed_scores",
+    ]
+    for key in required_eval_keys:
+        if key not in eval_settings:
+            st.error(
+                f"Config validation failed: Missing key '{key}' in 'evaluation_settings'."
+            )
+            return False
+        # Specific type checks
+        if key in ["expected_criteria", "allowed_scores"] and not isinstance(
+            eval_settings[key], list
+        ):
+            st.error(
+                f"Config validation failed: Key '{key}' in 'evaluation_settings' must be a list."
+            )
+            return False
+        elif key in ["judge_model", "prompt_template"] and not isinstance(
+            eval_settings[key], str
+        ):
+            st.error(
+                f"Config validation failed: Key '{key}' in 'evaluation_settings' must be a string."
+            )
+            return False
+
+    # Validate output_options has results_file (used by get endpoint, though not directly here)
+    output_options = config["output_options"]
+    if "results_file" not in output_options or not isinstance(
+        output_options["results_file"], str
+    ):
+        st.error(
+            "Config validation failed: Missing or invalid 'results_file' key in 'output_options'."
+        )
+        return False
+
+    # Could add more checks (e.g., non-empty lists/strings) if needed
+    st.success(
+        "Internal configuration validation successful."
+    )  # Use st.success for UI feedback
+    return True
 
 
 # --- Function to run evaluation in a separate thread ---
@@ -406,15 +482,22 @@ if st.session_state.get("evaluation_running", False):
                     config_data["llm_client"]["api_key"] = "${ANTHROPIC_API_KEY}"
                 elif provider_lower_for_env == "google":
                     config_data["llm_client"]["api_key"] = "${GOOGLE_API_KEY}"
+                # Add other providers if needed
 
-            # 3. Save temporary config
+            # 3. Validate the constructed config BEFORE saving and running
+            if not validate_config(config_data):
+                st.error("Generated configuration is invalid. Cannot start evaluation.")
+                st.session_state.evaluation_running = False
+                st.rerun()  # Stop and show error
+
+            # 4. Save temporary config (if validation passed)
             temp_config_path = (
                 st.session_state.temp_dir_path / f"temp_config_{current_index}.yaml"
             )
             with open(temp_config_path, "w") as f:
                 yaml.dump(config_data, f)
 
-            # 4. Start evaluation thread
+            # 5. Start evaluation thread
             st.session_state.output_queue = queue.Queue()
             st.session_state.worker_thread = threading.Thread(
                 target=run_evaluation_script,
@@ -937,8 +1020,14 @@ if st.session_state.results_df is not None:
                 )
 
                 # Define order and colors using the actual values from the data
-                category_orders = {review_status_col: ["Needs Review", "Not Required", "N/A"]} # Use actual values
-                color_map = {"Needs Review": "orange", "Not Required": "lightblue", "N/A": "grey"} # Use actual values
+                category_orders = {
+                    review_status_col: ["Needs Review", "Not Required", "N/A"]
+                }  # Use actual values
+                color_map = {
+                    "Needs Review": "orange",
+                    "Not Required": "lightblue",
+                    "N/A": "grey",
+                }  # Use actual values
 
                 # --- Create Graph ---
                 fig_review = px.bar(

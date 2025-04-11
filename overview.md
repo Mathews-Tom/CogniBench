@@ -3,10 +3,10 @@
 ## 1. Introduction & Goals
 
 * **Purpose:** To create an automated system (CogniBench) that evaluates the quality of Large Language Model (LLM) responses to advanced mathematics and STEM prompts.
-* **Core Function:** The system takes ingested data containing a `PROMPT`, `MODEL RESPONSE`s (including step-by-step reasoning), an `IDEAL RESPONSE` (expert-written detailed steps), and a ground-truth `FINAL_ANSWER` (extracted during ingestion from human annotations). It outputs a detailed, structured evaluation based on a predefined rubric (the enhanced L1 rubric), assessing the correctness, rigor, and logical soundness of each `MODEL RESPONSE`.
-* **Scope:** Primarily focused on the evaluation (`Judge`) component, operating on data preprocessed by the `ingest_rlhf_data.py` script. CogniBench implements the L1 diagnostic analysis described in the reference document.
+* **Core Function:** The system takes ingested data containing a `PROMPT`, `MODEL RESPONSE`s (including step-by-step reasoning), an `IDEAL RESPONSE` (expert-written detailed steps), and a ground-truth `FINAL_ANSWER` (extracted during ingestion from human annotations). It uses a configurable Judge LLM and prompt template to evaluate each `MODEL RESPONSE` against a predefined rubric (e.g., the L1 rubric), assessing correctness, rigor, and logical soundness. It outputs detailed, structured evaluation results.
+* **Scope:** Focused on the evaluation (`Judge`) component, operating on data preprocessed by `ingest_rlhf_data.py`. Implements L1 diagnostic analysis.
 * **Target Users:** Internal R&D teams, potentially adapted for client reporting verification.
-* **Key Challenge:** Ensuring the LLM judge consistently and accurately applies the nuanced L1 rubric criteria to complex mathematical reasoning.
+* **Key Challenges:** Ensuring consistent and accurate application of nuanced rubrics by the Judge LLM, robust parsing of judge outputs, and accurate verification of complex answers (especially mathematical).
 
 ## 2. Key Concepts (from Reference Document)
 
@@ -136,10 +136,10 @@ sequenceDiagram
 * **B. Preprocessing Module:**
   * **Function:** Prepares inputs for the Judge LLM.
   * **Sub-Tasks:**
-    * *Format Normalization:* Ensure text encodings, line breaks, etc., are consistent. Render LaTeX/MathML if present in a canonical way (e.g., plain text representation or consistent image format if visual).
-    * *Model Final Answer Extraction:* Implement logic (regex, heuristics, or a dedicated small LLM call) to reliably extract the explicit final answer *provided by the model* within its `MODEL RESPONSE` text. This is distinct from the ground-truth `final_answer`.
-    * *(Optional) Response Segmentation:* Attempt to break down `MODEL RESPONSE` and `IDEAL RESPONSE` into logical sections (e.g., problem setup, step 1, step 2, calculation, conclusion). This aids the Judge LLM and human review. Can use heuristics (keywords like "Step 1:", "Therefore", "Let...") or another LLM call.
-    * *Sanitization:* Remove potentially harmful content or PII if necessary, depending on deployment context.
+    * *Format Normalization:* Basic text normalization (Unicode, whitespace). *Note: LaTeX/MathML normalization is handled during postprocessing verification.*
+    * *Model Final Answer Extraction:* Uses enhanced regex patterns (including `$$...$$`) and heuristics to extract the final answer stated within the `MODEL RESPONSE`.
+    * *(Future) Response Segmentation:* (Not currently implemented) Could break down responses into logical sections.
+    * *(Future) Sanitization:* (Not currently implemented) Could remove sensitive content if needed.
 * **C. Evaluation Core (LLM Judge):**
   * **Function:** Performs the core evaluation using a powerful Judge LLM based on the L1 rubric.
   * **C1. Prompt Constructor:**
@@ -161,14 +161,14 @@ sequenceDiagram
   * **C3. Response Parser:**
     * Receives the raw output from the Judge LLM.
     * Parses the output to extract the structured evaluation data (Yes/No scores, justifications for each L1 parameter).
-    * Validates the structure and completeness of the parsed data against the expected format. Handles cases where the LLM fails to adhere to the format.
+    * Validates the structure and completeness of the parsed data against the expected format (criteria and scores defined in `config.yaml`). Handles cases where the LLM fails to adhere to the format, reporting all validation errors found.
 * **D. Post-processing & Aggregation:**
   * **Function:** Refines and aggregates the raw evaluation results.
   * **Sub-Tasks:**
-    * *Final Answer Verification:* Compare the `Model Final Answer` (extracted from the model's response text during Preprocessing) with the ground-truth `final_answer` (ingested from human annotations). This result strongly informs the `Results Formulae` L1 score but is also a critical standalone metric.
+    * *Final Answer Verification:* Compares the `Model Final Answer` (extracted during Preprocessing) with the ground-truth `final_answer`. Uses `sympy` (if available) for mathematical/symbolic equivalence checking (including LaTeX parsing), falling back to normalized string comparison otherwise.
     * *Consistency Checks (Optional):* Implement checks, e.g., if `Results Formulae` is 'No' due to final answer mismatch, ensure justification aligns. Could involve rule-based checks or even another LLM call for self-consistency review.
     * *Score Aggregation:* Calculate summary statistics if needed (e.g., total L1 'Yes' count). Determine an overall PASS/FAIL based on predefined rules (e.g., requires 'Yes' on all L1 parameters, or specific combinations). The reference doc suggests *any* 'No' results in overall failure for that component.
-    * *Human Review Flags:* Identify evaluations that might need human review (e.g., low confidence scores from the LLM if available, inconsistent justifications, borderline cases, failure to parse LLM output).
+    * *Human Review Flags:* Identify evaluations needing human review based on parsing errors, trivial justifications for negative/partial scores, or potentially other configurable rules (e.g., answer mismatches).
 * **E. Output Generation:**
   * **Function:** Formats the final evaluation into machine-readable files.
   * **Formats:** JSON Lines (`.jsonl`) for raw judge outputs, formatted JSON (`.json`) for cleaned evaluations, and a final combined JSON (`.json`) aggregating all data per task. All keys in these files are converted to `snake_case`.
@@ -186,7 +186,7 @@ sequenceDiagram
 * **G. Workflow Orchestrator:**
   * **Function:** Manages the execution flow of the pipeline steps (A -> B -> C -> D -> E).
   * **Technology:** Python scripts (`scripts/run_batch_evaluation.py`, `run_single_evaluation.py`). `run_batch_evaluation.py` orchestrates the end-to-end process including ingestion and evaluation steps.
-  * **Features:** Manages execution flow, handles file paths, calls component scripts (ingestion, evaluation), aggregates final results, manages logging configuration via `core/log_setup.py`.
+  * **Features:** Manages execution flow, handles file paths, calls component scripts (ingestion, evaluation), aggregates final results, manages logging configuration via `core/log_setup.py`. Includes configuration validation at startup.
 * **H. API Layer:**
   * **Function:** Provides an external interface to submit evaluation requests and retrieve results.
   * **Technology:** RESTful API using frameworks like FastAPI, Flask (Python), or Node.js/Express.
@@ -209,30 +209,34 @@ sequenceDiagram
 ## 7. Technology Stack Choices (Example)
 
 * **Programming Language:** Python (due to excellent data science, ML/LLM libraries, and web frameworks).
-* **LLM Judge:** GPT-4 / GPT-4o, Claude 3 Opus, Gemini 1.5 Pro (choose based on performance, context window, cost, API features like JSON mode/Function Calling).
-* **API Framework:** FastAPI or Flask.
-* **Workflow Orchestration:** Prefect, Dagster, or AWS Step Functions.
-* **Data Storage:** PostgreSQL (for structured data and relational integrity) or MongoDB (if schema flexibility is paramount).
-* **Deployment:** Docker containers, orchestrated via Kubernetes or deployed on cloud platforms (AWS, GCP, Azure) using services like SageMaker, Vertex AI, Azure ML, or container services (ECS, EKS, GKE, AKS).
+* **LLM Judge:** Configurable via `config.yaml` (e.g., GPT-4o, Claude 3 Opus, Gemini 1.5 Pro). Choice depends on performance, context window, cost, API features.
+* **Math Verification:** `sympy` (optional dependency).
+* **Configuration:** `PyYAML`.
+* **API Framework:** FastAPI.
+* **UI Framework:** Streamlit.
+* **Workflow Orchestration:** Python scripts.
+* **Data Storage:** Filesystem (JSON, JSONL).
+* **Deployment:** Docker (optional), local execution.
 
 ## 8. Key Design Considerations & Trade-offs
 
 * **Prompt Engineering:** *Critical Path.* Requires iterative refinement. Prompts must be unambiguous, include the full rubric, and clearly specify the desired output format. Consider using Few-Shot examples within the prompt.
 * **Judge LLM Choice:** Stronger models (GPT-4o, Opus) yield better reasoning but are slower/more expensive. Need to balance quality vs. cost/latency.
-* **Structured Output:** Relying on LLMs for structured output (JSON) is crucial but not foolproof. Implement robust parsing and validation. Function Calling/Tool Use can improve reliability.
+* **Structured Output:** Relying on LLMs for structured output (JSON) is crucial but not foolproof. Robust parsing, validation (checking required criteria/scores from config), and comprehensive error reporting are implemented. Function Calling/Tool Use could further improve reliability.
 * **Consistency:** LLM outputs can vary. Use `temperature=0`. Consider running evaluations multiple times (e.g., 2 out of 3 agreement) for critical assessments, although this increases cost.
 * **Human-in-the-Loop:** *Essential.* Implement a review interface for experts to validate/correct Judge LLM outputs, especially during initial calibration and for ambiguous cases. This feedback loop is crucial for improving prompts and potentially fine-tuning the judge model in the future.
 * **Scalability:** Design for asynchronous processing using the orchestrator and potentially scale Judge LLM invocations horizontally.
 * **Context Window Limitations:** Advanced math solutions can be long. Ensure the Judge LLM has a sufficient context window. If not, strategies like breaking down the evaluation per step or using abstracted summaries might be needed (but risk losing fidelity).
 * **Cost Management:** Monitor LLM API usage closely. Explore caching identical requests (if applicable). Potentially use smaller/cheaper models for simpler preprocessing tasks (like answer extraction).
-* **Rubric Evolution:** Design the system (especially prompt construction and parsing) to be adaptable if the L1/L2 rubric needs modification later. Store the rubric version used for each evaluation.
+* **Rubric Evolution:** The evaluation rubric (expected criteria, allowed scores) is now defined in `config.yaml`, making it easier to modify without code changes. The prompt template path is also configured.
 * **Security:** If handling sensitive/proprietary prompts or model outputs, ensure appropriate data handling, access controls, and potentially use models with stronger data privacy guarantees (e.g., Azure OpenAI).
 
 ## 9. Future Enhancements
 
 * **Fine-tuning the Judge LLM:** Use human-corrected evaluations as training data to fine-tune a base LLM for the specific task of rubric-based math evaluation within CogniBench, potentially improving accuracy and consistency.
 * **Multi-Judge Consensus:** Employ multiple different Judge LLMs within CogniBench and aggregate their results for higher confidence.
-* **Visual Understanding:** Integrate capabilities into CogniBench to analyze diagrams or plots if they are part of the prompt or response (requires multi-modal models).
+* **Visual Understanding:** Integrate capabilities to analyze diagrams or plots if part of the prompt/response (requires multi-modal models).
+* **Advanced Answer Verification:** Implement more sophisticated verification for different answer types (e.g., code execution, set comparison, numerical tolerance).
 * **Automated Ideal Response Generation (Research):** Explore using powerful LLMs within the CogniBench workflow to *generate* the `IDEAL RESPONSE` as a starting point for human experts, speeding up the process.
 * **Integration with L0:** Tightly integrate the L1 Judge output from CogniBench back into the L0 Golden Prompt Discovery process for richer failure analysis.
 * **User Interface (Streamlit):** Further enhance the Streamlit application (`streamlit_app/`) for better analysis and usability (Note: Recent updates include a button to view selected prompt templates in a dialog and displaying the configuration summary below the configuration details section):

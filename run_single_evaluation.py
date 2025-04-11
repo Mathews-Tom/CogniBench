@@ -6,6 +6,7 @@ import json
 import logging  # Import logging
 import sys
 from pathlib import Path
+from typing import Any, Dict  # Added imports
 
 # Assuming workflow and config loading utilities exist
 from core.workflow import run_evaluation_workflow
@@ -54,8 +55,55 @@ def load_config(config_path: Path):
         sys.exit(1)
 
 
+def validate_config(config: Dict[str, Any]) -> bool:
+    """Performs basic validation on the loaded configuration dictionary."""
+    required_sections = ["llm_client", "evaluation_settings"]
+    for section in required_sections:
+        if section not in config or not isinstance(config[section], dict):
+            logger.error(
+                "Config validation failed: Missing or invalid section '%s'.", section
+            )
+            return False
+
+    eval_settings = config["evaluation_settings"]
+    required_eval_keys = [
+        "judge_model",
+        "prompt_template",
+        "expected_criteria",
+        "allowed_scores",
+    ]
+    for key in required_eval_keys:
+        if key not in eval_settings:
+            logger.error(
+                "Config validation failed: Missing key '%s' in 'evaluation_settings'.",
+                key,
+            )
+            return False
+        # Specific type checks
+        if key in ["expected_criteria", "allowed_scores"] and not isinstance(
+            eval_settings[key], list
+        ):
+            logger.error(
+                "Config validation failed: Key '%s' in 'evaluation_settings' must be a list.",
+                key,
+            )
+            return False
+        elif key in ["judge_model", "prompt_template"] and not isinstance(
+            eval_settings[key], str
+        ):
+            logger.error(
+                "Config validation failed: Key '%s' in 'evaluation_settings' must be a string.",
+                key,
+            )
+            return False
+
+    # Could add more checks (e.g., non-empty lists/strings) if needed
+    logger.info("Configuration validation successful.")
+    return True
+
+
 def main(args):
-    """Loads data, iterates through tasks/responses, and runs evaluation workflow."""
+    """Loads config, data, iterates through tasks/responses, and runs evaluation workflow."""
     config_path = Path(args.config)
     input_data_path = Path(args.input_data)
 
@@ -66,6 +114,10 @@ def main(args):
     config = load_config(config_path)
     if not config:
         sys.exit(1)  # Error handled in load_config
+
+    # --- Validate Configuration ---
+    if not validate_config(config):
+        sys.exit(1)
 
     try:
         with input_data_path.open("r", encoding="utf-8") as f:

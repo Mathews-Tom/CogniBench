@@ -2,28 +2,125 @@
 # Version: 0.1 (Phase 3 - Basic Setup)
 
 import json
+import logging  # Added
 import os
+import sys  # Added
 import uuid
 from datetime import datetime
+from pathlib import Path  # Added
+from typing import Any, Dict, Optional  # Added
 
-from core.workflow import run_evaluation_workflow  # Import the workflow function
+# Assuming workflow and config loading utilities exist
+from core.workflow import run_evaluation_workflow
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Security
 from fastapi.security import APIKeyHeader
 
-# Import schemas and potentially core functions if needed later
-from .schemas import (
-    EvaluationRequest,  # Added EvaluationResultData
-    EvaluationResponse,
-    EvaluationResultData,
-)
+# Setup logger for this module
+# Note: FastAPI has its own logging, but we can use this for config loading etc.
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)  # Basic config for startup logs
 
-# --- Configuration (Should match workflow.py or be centralized) ---
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
-PROMPTS_FILE = os.path.join(DATA_DIR, "prompts.json")
-MODEL_RESPONSES_FILE = os.path.join(DATA_DIR, "model_responses.json")
-IDEAL_RESPONSES_FILE = os.path.join(DATA_DIR, "ideal_responses.json")
-EVALUATIONS_FILE = os.path.join(DATA_DIR, "evaluations.jsonl")  # Updated to .jsonl
+# Import schemas and potentially core functions if needed later
+from .schemas import EvaluationRequest, EvaluationResponse, EvaluationResultData
+
+# --- Configuration Loading and Validation ---
+# Determine config path relative to this file (api/main.py -> CogniBench/config.yaml)
+CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
+APP_CONFIG: Optional[Dict[str, Any]] = None  # Global variable to hold validated config
+
+
+def load_config(config_path: Path) -> Optional[Dict[str, Any]]:
+    """Loads configuration from a YAML file."""
+    if not config_path.is_file():
+        logger.error("Configuration file not found at %s", config_path)
+        return None
+    try:
+        import yaml
+
+        with config_path.open("r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+            if not isinstance(config, dict):
+                logger.error(
+                    "Configuration file '%s' did not load as a dictionary.", config_path
+                )
+                return None
+            return config
+    except ImportError:
+        logger.error(
+            "PyYAML is required to load config.yaml. Please install it (`uv pip install pyyaml`)."
+        )
+        return None
+    except Exception as e:
+        logger.error("Error loading config file %s", config_path, exc_info=True)
+        return None
+
+
+def validate_config(config: Optional[Dict[str, Any]]) -> bool:
+    """Performs basic validation on the loaded configuration dictionary."""
+    if not config:  # Check if config is None or empty
+        logger.error(
+            "Config validation failed: Configuration is empty or failed to load."
+        )
+        return False
+
+    required_sections = [
+        "llm_client",
+        "evaluation_settings",
+        "output_options",
+    ]  # Added output_options
+    for section in required_sections:
+        if section not in config or not isinstance(config[section], dict):
+            logger.error(
+                "Config validation failed: Missing or invalid section '%s'.", section
+            )
+            return False
+
+    eval_settings = config["evaluation_settings"]
+    required_eval_keys = [
+        "judge_model",
+        "prompt_template",
+        "expected_criteria",
+        "allowed_scores",
+    ]
+    for key in required_eval_keys:
+        if key not in eval_settings:
+            logger.error(
+                "Config validation failed: Missing key '%s' in 'evaluation_settings'.",
+                key,
+            )
+            return False
+        # Specific type checks
+        if key in ["expected_criteria", "allowed_scores"] and not isinstance(
+            eval_settings[key], list
+        ):
+            logger.error(
+                "Config validation failed: Key '%s' in 'evaluation_settings' must be a list.",
+                key,
+            )
+            return False
+        elif key in ["judge_model", "prompt_template"] and not isinstance(
+            eval_settings[key], str
+        ):
+            logger.error(
+                "Config validation failed: Key '%s' in 'evaluation_settings' must be a string.",
+                key,
+            )
+            return False
+
+    # Validate output_options has results_file (used by get endpoint)
+    output_options = config["output_options"]
+    if "results_file" not in output_options or not isinstance(
+        output_options["results_file"], str
+    ):
+        logger.error(
+            "Config validation failed: Missing or invalid 'results_file' key in 'output_options'."
+        )
+        return False
+
+    logger.info("Configuration validation successful.")
+    return True
+
 
 # --- Security Setup ---
 load_dotenv()  # Load .env file for API_KEY
@@ -55,6 +152,26 @@ app = FastAPI(
     description="API for submitting and managing CogniBench evaluations.",
     version="0.1.0",
 )
+
+
+# --- FastAPI Startup Event ---
+@app.on_event("startup")
+async def startup_event():
+    """Load and validate configuration on API startup."""
+    global APP_CONFIG
+    logger.info("Loading API configuration from: %s", CONFIG_PATH)
+    loaded_config = load_config(CONFIG_PATH)
+    if validate_config(loaded_config):
+        APP_CONFIG = loaded_config
+        logger.info("API Configuration loaded and validated successfully.")
+    else:
+        APP_CONFIG = None  # Ensure config is None if validation fails
+        logger.error(
+            "API startup failed due to invalid configuration. Please check config.yaml."
+        )
+        # Optionally, raise an exception here to prevent startup,
+        # but logging the error might be sufficient depending on desired behavior.
+        # raise RuntimeError("API Configuration failed validation.")
 
 
 @app.get("/health", tags=["Status"])
@@ -94,17 +211,45 @@ async def submit_evaluation(
     api_request_id = f"api_req_{uuid.uuid4()}"
     print(f"API Request {api_request_id}: Queuing evaluation workflow...")
 
+    # Check if config loaded successfully during startup
+    if APP_CONFIG is None:
+        logger.error(
+            "API Error: Server configuration is invalid or missing. Cannot process request."
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error: Invalid server configuration.",
+        )
+
     try:
+        # --- Data Retrieval (Placeholder - Needs Implementation) ---
+        # TODO: Implement logic to retrieve actual prompt, response, and ideal_response
+        #       text content based on the IDs provided in the request.
+        #       This likely involves reading from files or a database based on how
+        #       data is stored/managed.
+        # Example Placeholder:
+        prompt_text = f"Placeholder prompt for ID {request.prompt_id}"
+        response_text = f"Placeholder response for ID {request.model_response_id}"
+        ideal_response_text = (
+            f"Placeholder ideal response for ID {request.ideal_response_id}"
+        )
+        logger.warning(
+            "Using placeholder data for prompt/response text. Implement actual data retrieval."
+        )
+        # --- End Placeholder ---
+
         # Schedule the workflow to run in the background
-        # Pass necessary IDs and parameters from the request
         background_tasks.add_task(
             run_evaluation_workflow,
-            prompt_id=request.prompt_id,
-            response_id=request.model_response_id,
-            ideal_response_id=request.ideal_response_id,
-            # Optional: Pass judge model/prompt version from request if needed
-            # judge_llm_model=request.judge_llm_model,
-            # judge_prompt_version=request.judge_prompt_version,
+            prompt=prompt_text,  # Pass actual text content
+            response=response_text,
+            ideal_response=ideal_response_text,
+            config=APP_CONFIG,  # Pass the loaded and validated config
+            task_id=request.task_id,  # Pass optional task_id if provided
+            model_id=request.model_id,  # Pass optional model_id if provided
+            # Determine output path from config or default
+            # Note: run_evaluation_workflow handles saving to JSONL now
+            # output_jsonl_path=Path(APP_CONFIG["output_options"]["results_file"]).parent / f"{APP_CONFIG['output_options']['results_file']}.jsonl" # Example construction
         )
 
         print(f"API Request {api_request_id}: Evaluation workflow successfully queued.")
@@ -140,13 +285,19 @@ async def get_evaluation_result(evaluation_id: str):
     Assumes the evaluation has been processed offline and saved to evaluations.json.
     """
     print(f"Received request for evaluation_id: {evaluation_id}")
-    evaluations = []
-    if not os.path.exists(EVALUATIONS_FILE):
+    # Determine the results file path from config (validated at startup)
+    # Use Path object for consistency
+    results_file_path = Path(
+        APP_CONFIG["output_options"]["results_file"]
+    )  # Assumes validation passed
+
+    if not results_file_path.is_file():
+        logger.warning("Evaluations result file '%s' not found.", results_file_path)
         raise HTTPException(status_code=404, detail=f"Evaluations data file not found.")
 
     # Read JSONL file line by line
     try:
-        with open(EVALUATIONS_FILE, "r", encoding="utf-8") as f:
+        with results_file_path.open("r", encoding="utf-8") as f:
             for line in f:
                 try:
                     evaluation = json.loads(line)
@@ -155,18 +306,25 @@ async def get_evaluation_result(evaluation_id: str):
                         # FastAPI will validate against the response_model
                         return evaluation
                 except json.JSONDecodeError:
-                    print(
-                        f"Warning: Skipping invalid JSON line in {EVALUATIONS_FILE}: {line.strip()}"
+                    logger.warning(
+                        "Skipping invalid JSON line in %s: %s",
+                        results_file_path,
+                        line.strip(),
                     )
                     continue  # Skip malformed lines
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"Evaluations data file not found.")
+        raise HTTPException(status_code=404, detail="Evaluations data file not found.")
     except IOError as e:
         raise HTTPException(
             status_code=500, detail=f"Error reading evaluations data file: {e}"
         )
     except Exception as e:  # Catch unexpected errors during processing
-        print(f"API Error: Unexpected error reading {EVALUATIONS_FILE}: {e}")
+        logger.error(
+            "API Error: Unexpected error reading %s: %s",
+            results_file_path,
+            e,
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=500, detail="Internal server error reading evaluation data."
         )

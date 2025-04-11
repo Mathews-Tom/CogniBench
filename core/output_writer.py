@@ -1,16 +1,22 @@
-# CogniBench - Output Writer
-# Version: 0.2 (Phase 4 - Include Review Flags)
+# -*- coding: utf-8 -*-
+"""
+CogniBench Output Writer Module.
+
+Handles saving evaluation results to a JSONL file.
+Each line in the output file represents a single evaluation record.
+
+Version: 0.4
+"""
 
 import json
-import logging  # Import logging
+import logging
 from datetime import datetime
-
-# import os # Replaced with pathlib
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 # Define the path relative to the project root (CogniBench/) using pathlib
-PROJECT_ROOT = Path(__file__).parent.parent  # Assumes this file is in core/
+# Assumes this file (output_writer.py) is in CogniBench/core/
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 DEFAULT_EVALUATIONS_FILE_PATH = DATA_DIR / "evaluations.jsonl"  # Default path
 
@@ -30,135 +36,188 @@ def save_evaluation_result(
     ideal_response_id: Optional[str] = None,
     aggregated_score: Optional[str] = None,
     final_answer_verified: Optional[bool] = None,
+    verification_message: Optional[str] = None,  # Added verification_message
     needs_human_review: bool = False,
     review_reasons: Optional[List[str]] = None,
     task_id: Optional[str] = None,
     model_id: Optional[str] = None,
-    output_jsonl_path: Optional[Path] = None,  # New parameter for output path
-) -> Dict[str, Any]:
-    """
-    Appends a new evaluation result to the evaluations JSON file.
+    output_jsonl_path: Optional[Path] = None,
+    parsing_error: Optional[str] = None,
+) -> Dict[str, Union[str, None]]:  # Return type indicates status and maybe message/id
+    """Appends a structured evaluation result record to a JSONL file.
+
+    Each call appends a single line representing one evaluation to the specified
+    output file. If the file or directory doesn't exist, it attempts to create them.
 
     Args:
-        evaluation_id: A unique identifier for this evaluation.
-        response_id: Optional ID of the model response being evaluated (legacy).
-        ideal_response_id: Optional ID of the ideal response used for comparison (legacy).
+        evaluation_id: A unique identifier for this specific evaluation run.
         judge_llm_model: The name/identifier of the Judge LLM used.
         judge_prompt_template_path: Path to the prompt template file used.
-        raw_judge_output: The raw output received from the Judge LLM.
-        parsed_rubric_scores: The parsed rubric scores (e.g., from response_parser).
-        aggregated_score: Overall score (e.g., "Pass", "Fail", "Partial").
+        raw_judge_output: The raw output received from the Judge LLM (typically
+            a dictionary containing the raw text).
+        parsed_rubric_scores: The parsed rubric scores dictionary (criterion ->
+            {'score': ..., 'justification': ...}) if parsing was successful,
+            otherwise likely an empty dictionary.
+        response_id: Optional legacy ID of the model response being evaluated.
+        ideal_response_id: Optional legacy ID of the ideal response used.
+        aggregated_score: Overall aggregated score ("Pass", "Fail", "Partial", or None).
         final_answer_verified: Boolean indicating final answer match, or None if skipped.
+        verification_message: String describing the outcome of the verification step.
         needs_human_review: Boolean flag indicating if the evaluation requires human review.
-        review_reasons: List of strings explaining why human review is needed.
-        task_id: Optional identifier for the original task.
+        review_reasons: List of strings explaining why human review is needed, or None.
+        task_id: Optional identifier for the original task/prompt.
         model_id: Optional identifier for the model that generated the response.
-        output_jsonl_path: Optional Path object for the target output JSONL file.
-                            If None, defaults to 'data/evaluations.jsonl'.
-
+        output_jsonl_path: Optional `pathlib.Path` object for the target output
+            JSONL file. If None, defaults to `data/evaluations.jsonl` relative
+            to the project root.
+        parsing_error: An optional string containing the error message if judge
+            response parsing failed. Defaults to None.
 
     Returns:
-        A dictionary indicating success or failure.
-        Example success: {"status": "success", "evaluation_id": evaluation_id}
-        Example error: {"status": "error", "message": "Error details..."}
+        A dictionary indicating the outcome of the save operation:
+        - On success: `{"status": "success", "evaluation_id": evaluation_id}`
+        - On failure: `{"status": "error", "message": "Detailed error message"}`
     """
+    target_path: Path = DEFAULT_EVALUATIONS_FILE_PATH  # Initialize with default
     try:
-        # Determine the output path
+        # Determine the output path, using default if None provided
         target_path = (
-            output_jsonl_path if output_jsonl_path else DEFAULT_EVALUATIONS_FILE_PATH
+            output_jsonl_path
+            if output_jsonl_path is not None
+            else DEFAULT_EVALUATIONS_FILE_PATH
         )
+        logger.debug("Determined output path: %s", target_path)
 
         # Ensure the directory for the target path exists
         target_path.parent.mkdir(parents=True, exist_ok=True)
+        logger.debug("Ensured output directory exists: %s", target_path.parent)
 
-        # Removed reading the entire file - we will append directly.
-        # Construct the new evaluation record
-        new_evaluation = {
+        # Construct the new evaluation record dictionary
+        # Ensure all values are JSON serializable
+        new_evaluation: Dict[str, Any] = {
             "evaluation_id": evaluation_id,
-            "task_id": task_id,  # Added
-            "model_id": model_id,  # Added
-            "response_id": response_id,  # Kept for potential cross-referencing if needed
-            "ideal_response_id": ideal_response_id,
+            "task_id": task_id,
+            "model_id": model_id,
+            "response_id": response_id,  # Legacy field
+            "ideal_response_id": ideal_response_id,  # Legacy field
             "judge_llm_model": judge_llm_model,
             "judge_prompt_template_path": str(
                 judge_prompt_template_path
-            ),  # Store path as string
-            "raw_judge_output": raw_judge_output,
-            "parsed_rubric_scores": parsed_rubric_scores,
+            ),  # Ensure string
+            "raw_judge_output": raw_judge_output,  # Assumed dict/serializable
+            "parsed_rubric_scores": parsed_rubric_scores,  # Assumed dict/serializable
             "aggregated_score": aggregated_score,
             "final_answer_verified": final_answer_verified,
-            "needs_human_review": needs_human_review,  # Store the flag
-            "review_reasons": review_reasons or [],  # Store the reasons (ensure list)
+            "verification_message": verification_message,  # Added field
+            "needs_human_review": needs_human_review,
+            "review_reasons": review_reasons or [],  # Ensure list, even if None
+            "parsing_error": parsing_error,  # Include parsing error if present
+            # --- Human Review Fields (Initialized) ---
             "human_review_status": "Needs Review"
             if needs_human_review
-            else "Not Required",  # Set status based on flag
+            else "Not Required",
             "human_reviewer_id": None,
             "human_review_timestamp": None,
             "human_corrected_scores": None,
             "human_review_comments": None,
-            "created_at": datetime.utcnow().isoformat() + "Z",  # ISO 8601 format
+            # --- Timestamp ---
+            "created_at": datetime.utcnow().isoformat() + "Z",  # ISO 8601 format UTC
         }
 
-        # Convert the new record to a JSON string
-        json_line = json.dumps(new_evaluation, ensure_ascii=False)
+        # Convert the new record to a JSON string representation
+        json_line: str = json.dumps(new_evaluation, ensure_ascii=False)
 
         # Append the JSON string as a new line to the target file
         with target_path.open("a", encoding="utf-8") as f:
             f.write(json_line + "\n")
 
-        logger.debug(  # Changed to debug
+        logger.debug(
             "Successfully saved evaluation %s to %s", evaluation_id, target_path
         )
-        return {"status": "success", "evaluation_id": evaluation_id}
+        return {
+            "status": "success",
+            "evaluation_id": evaluation_id,
+        }  # Return success status and ID
 
     except IOError as e:
-        logger.error(
-            "File I/O Error saving evaluation to %s", target_path, exc_info=True
-        )
-        return {"status": "error", "message": f"File I/O Error: {e}"}
+        # Log the specific file path in the error message
+        error_msg = f"File I/O Error saving evaluation to {target_path}: {e}"
+        logger.error(error_msg, exc_info=True)
+        return {"status": "error", "message": error_msg}
     except Exception as e:
-        logger.exception(
-            "An unexpected error occurred saving evaluation %s", evaluation_id
-        )  # Use exception to log traceback
-        return {"status": "error", "message": f"Unexpected Error: {e}"}
+        # Catch any other unexpected errors during saving
+        error_msg = f"Unexpected Error saving evaluation {evaluation_id}: {e}"
+        logger.exception(error_msg)  # Use exception to log full traceback
+        return {"status": "error", "message": error_msg}
 
 
 if __name__ == "__main__":
-    # Example data (replace with actual data from previous steps)
-    test_eval_id = f"eval_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
-    test_parsed_data = {
-        "evaluation": {
-            "Problem Understanding": {
-                "score": "Yes",
-                "justification": "Test justification PU.",
-            },
-            "Results Formulae": {
-                "score": "No",
-                "justification": "Test justification RF.",
-            },
-        }
-    }
-    test_raw_output = {
-        "raw_content": json.dumps(test_parsed_data)
-    }  # Simulate raw output containing the JSON
+    # Example usage for testing if run directly
+    # Setup basic logging for direct script execution test
+    logging.basicConfig(level=logging.DEBUG)
+    logger.info("Running output_writer example...")
 
-    # Update example call if needed, though this __main__ block might be removed later
-    result = save_evaluation_result(
-        evaluation_id=test_eval_id,
-        task_id="example_task_001",  # Example
-        model_id="example_model_X",  # Example
-        response_id="resp_001_modelA",  # Example
-        ideal_response_id="ideal_resp_001",  # Example
-        judge_llm_model="gpt-4o-test",
-        judge_prompt_template_path="prompts/example_template.txt",  # Example path
+    # Example data (replace with actual data from previous steps in a real scenario)
+    test_eval_id = f"eval_test_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    test_parsed_scores = {
+        "Criterion A": {"score": "Yes", "justification": "Looks good."},
+        "Criterion B": {"score": "Partial", "justification": "Minor issue."},
+    }
+    test_raw_output = {"raw_content": "LLM output text..."}
+    # Use a temporary directory for example output to avoid cluttering data/
+    temp_output_dir = Path("./temp_test_output")
+    temp_output_dir.mkdir(exist_ok=True)
+    test_output_path = temp_output_dir / "test_output_writer_example.jsonl"
+
+    # Call the function with example data including a parsing error
+    result_with_error = save_evaluation_result(
+        evaluation_id=test_eval_id + "_err",
+        task_id="test_task_01",
+        model_id="test_model_A",
+        judge_llm_model="test_judge_model",
+        judge_prompt_template_path="prompts/test_template.txt",
         raw_judge_output=test_raw_output,
-        parsed_rubric_scores=test_parsed_data.get("evaluation", {}),
-        needs_human_review=True,  # Example
-        review_reasons=["Example reason"],  # Example
-        output_jsonl_path=Path("data/example_output.jsonl"),  # Example path for testing
+        parsed_rubric_scores={},  # Empty when parsing fails
+        aggregated_score=None,
+        final_answer_verified=True,  # Verification might still run
+        verification_message="Verification skipped: Extracted answer was None.",  # Example message
+        needs_human_review=True,
+        review_reasons=["LLM response parsing failed: Example parsing error message."],
+        parsing_error="Example parsing error message.",  # Test with parsing error
+        output_jsonl_path=test_output_path,
     )
-    # Example usage might need logging setup if run directly
-    # from log_setup import setup_logging
-    # setup_logging()
-    logger.info("Example save result: %s", result)
-    # Removed duplicate log line
+    logger.info(
+        "Example save_evaluation_result outcome (with error): %s", result_with_error
+    )
+
+    # Call the function with example data for success case
+    result_success = save_evaluation_result(
+        evaluation_id=test_eval_id + "_ok",
+        task_id="test_task_02",
+        model_id="test_model_B",
+        judge_llm_model="test_judge_model",
+        judge_prompt_template_path="prompts/test_template.txt",
+        raw_judge_output=test_raw_output,
+        parsed_rubric_scores=test_parsed_scores,
+        aggregated_score="Partial",
+        final_answer_verified=False,
+        verification_message="Verification (String): Mismatch (Extracted: 'a', Correct: 'b').",  # Example message
+        needs_human_review=True,
+        review_reasons=["Partial score", "Answer mismatch"],
+        parsing_error=None,  # No parsing error
+        output_jsonl_path=test_output_path,
+    )
+    logger.info("Example save_evaluation_result outcome (success): %s", result_success)
+
+    # Verify the file content (optional manual check or add assertions)
+    if test_output_path.exists():
+        logger.info("Check the content of %s", test_output_path)
+        # Clean up the test file afterwards? Optional.
+        # try:
+        #     test_output_path.unlink()
+        #     temp_output_dir.rmdir() # Remove dir only if empty
+        #     logger.info("Cleaned up test output file and directory.")
+        # except OSError as e:
+        #     logger.warning("Could not clean up test output: %s", e)
+    else:
+        logger.error("Test output file was not created.")
