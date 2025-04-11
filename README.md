@@ -22,7 +22,7 @@ Evaluating LLMs on complex reasoning tasks, especially in specialized fields lik
 * **Combined Results:** Generates a final JSON file grouping results by task for easier comparison across models.
 * **Configurable Logging:** Timestamped log files and configurable console output levels.
 * **API Interface:** (Optional) Provides an API for programmatic interaction.
-* **Streamlit UI:** A user-friendly interface (`streamlit_app/`) for uploading batch files, configuring the judge, running evaluations, viewing persistent logs, and visualizing results (overall performance, rubric breakdown).
+* **Streamlit UI:** A user-friendly interface (`streamlit_app/`) for uploading batch files, configuring the judge (collapsible section with summary), running evaluations (with human-readable duration display), viewing persistent logs, and visualizing results (overall performance, rubric breakdown per criterion/model, human review status counts, and explorers for all tasks and those needing review).
 
 ## Project Structure
 
