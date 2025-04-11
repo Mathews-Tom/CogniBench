@@ -7,6 +7,7 @@ import sys
 import time  # For timestamp
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, Optional  # Added imports
 
 # Assuming log_setup is in core directory relative to project root
 try:
@@ -90,6 +91,82 @@ def keys_to_snake_case(obj):
         return obj
 
 
+def load_config(config_path: Path) -> Optional[Dict[str, Any]]:
+    """Loads configuration from a YAML file."""
+    try:
+        import yaml
+
+        with config_path.open("r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+            if not isinstance(config, dict):
+                logger.error(
+                    "Configuration file '%s' did not load as a dictionary.", config_path
+                )
+                return None
+            return config
+    except ImportError:
+        logger.error(
+            "PyYAML is required to load config.yaml. Please install it (`uv pip install pyyaml`)."
+        )
+        return None
+    except Exception as e:
+        logger.error("Error loading config file %s", config_path, exc_info=True)
+        return None
+
+
+def validate_config(config: Dict[str, Any]) -> bool:
+    """Performs basic validation on the loaded configuration dictionary."""
+    if not config:  # Check if config is None or empty
+        logger.error(
+            "Config validation failed: Configuration is empty or failed to load."
+        )
+        return False
+
+    required_sections = ["llm_client", "evaluation_settings"]
+    for section in required_sections:
+        if section not in config or not isinstance(config[section], dict):
+            logger.error(
+                "Config validation failed: Missing or invalid section '%s'.", section
+            )
+            return False
+
+    eval_settings = config["evaluation_settings"]
+    required_eval_keys = [
+        "judge_model",
+        "prompt_template",
+        "expected_criteria",
+        "allowed_scores",
+    ]
+    for key in required_eval_keys:
+        if key not in eval_settings:
+            logger.error(
+                "Config validation failed: Missing key '%s' in 'evaluation_settings'.",
+                key,
+            )
+            return False
+        # Specific type checks
+        if key in ["expected_criteria", "allowed_scores"] and not isinstance(
+            eval_settings[key], list
+        ):
+            logger.error(
+                "Config validation failed: Key '%s' in 'evaluation_settings' must be a list.",
+                key,
+            )
+            return False
+        elif key in ["judge_model", "prompt_template"] and not isinstance(
+            eval_settings[key], str
+        ):
+            logger.error(
+                "Config validation failed: Key '%s' in 'evaluation_settings' must be a string.",
+                key,
+            )
+            return False
+
+    # Could add more checks (e.g., non-empty lists/strings) if needed
+    logger.info("Configuration validation successful.")
+    return True
+
+
 if __name__ == "__main__":
     setup_logging()  # Setup logging
     logger.info("Starting end-to-end batch evaluation script.")
@@ -118,6 +195,13 @@ if __name__ == "__main__":
 
     if not config_path.is_file():
         logger.error("Config file not found at %s", config_path)
+        sys.exit(1)
+
+    # --- Load and Validate Config Early ---
+    logger.info("Loading configuration from %s...", config_path)
+    config = load_config(config_path)
+    if not validate_config(config):  # Validate config after loading
+        logger.error("Invalid configuration file. Aborting.")
         sys.exit(1)
 
     # --- Determine and Create Output Directory ---
@@ -419,7 +503,9 @@ if __name__ == "__main__":
                 final_results_path,
             )
             # Print the path to stdout for the Streamlit app to capture
-            print(f"Successfully combined ingested data and evaluations into {final_results_path}")
+            print(
+                f"Successfully combined ingested data and evaluations into {final_results_path}"
+            )
             logger.debug("--- Finished Step 4: Combining Results ---")
 
         except IOError as e:

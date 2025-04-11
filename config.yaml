@@ -30,6 +30,19 @@ evaluation_settings:
   judge_model: gpt-4o
   # Path to the text file containing the prompt template used to instruct the judge model.
   prompt_template: "prompts/full_l1_v0.2.txt" # Path to the actual template file
+  # List of criteria names expected in the judge LLM's JSON output (under 'evaluation').
+  # The parser will validate against these (case-insensitive matching).
+  expected_criteria:
+    - "Problem Understanding"
+    - "Assumptions"
+    - "Logical Implications"
+    - "Results Formulae"
+    - "Rigor and Completeness"
+  # List of allowed score values for each criterion (case-insensitive matching).
+  allowed_scores:
+    - "Yes"
+    - "No"
+    - "Partial"
 
 # --- Output Configuration ---
 # Defines where the evaluation results should be saved.
