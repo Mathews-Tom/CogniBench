@@ -441,8 +441,6 @@ def run_evaluation_script(input_file_path, config_file_path, output_queue, stop_
     finally:
         output_queue.put(None)
         stop_event.clear()
-        # output_queue.put("DEBUG (Thread): Reached finally block, putting None.") # Keep commented
-        output_queue.put(None)  # Signal completion
 
 
 # --- Run Evaluation Logic ---
@@ -466,7 +464,7 @@ if st.session_state.get("evaluation_running", False):
     progress_area = st.container()
     stop_button = st.button("🛑 Stop Processing", type="primary")
     if stop_button:
-        st.session_state.stop_event.set()
+        st.session_state.stop_requested = True
     log_expander = st.expander("Show Full Logs", expanded=False)
     log_placeholder = log_expander.empty()
 
@@ -1176,3 +1174,4 @@ elif (
 
 # Update previous running state at the very end of the script run
 st.session_state.previous_evaluation_running = st.session_state.evaluation_running
+
