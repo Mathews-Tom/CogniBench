@@ -57,6 +57,7 @@ AVAILABLE_MODELS = {
         "GPT-4 Turbo": "gpt-4-turbo",
         "GPT-4": "gpt-4",
         "GPT-3.5 Turbo": "gpt-3.5-turbo",
+        "O1": "o1",
     },
     "Anthropic": {
         "Claude 3.5 Haiku": "claude-3-5-haiku-latest",  # Placeholder ID
@@ -75,7 +76,6 @@ AVAILABLE_MODELS = {
     # }
 }
 
-# Define available prompt templates
 # Define available prompt templates using absolute path
 try:
     prompt_files = [
@@ -1095,7 +1095,12 @@ if st.session_state.results_df is not None:
                     barmode="group",
                     category_orders=category_orders,
                     color_discrete_map=color_map,
+                    text="count",  # Add count numbers on bars
                 )
+
+                fig_review.update_traces(
+                    textposition="outside"
+                )  # Position text labels outside bars
                 st.plotly_chart(fig_review, use_container_width=True)
 
                 # --- Human Review Explorer ---
