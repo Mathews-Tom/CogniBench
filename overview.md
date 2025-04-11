@@ -239,7 +239,7 @@ sequenceDiagram
 * **Advanced Answer Verification:** Implement more sophisticated verification for different answer types (e.g., code execution, set comparison, numerical tolerance).
 * **Automated Ideal Response Generation (Research):** Explore using powerful LLMs within the CogniBench workflow to *generate* the `IDEAL RESPONSE` as a starting point for human experts, speeding up the process.
 * **Integration with L0:** Tightly integrate the L1 Judge output from CogniBench back into the L0 Golden Prompt Discovery process for richer failure analysis.
-* **User Interface (Streamlit):** Further enhance the Streamlit application (`streamlit_app/`) for better analysis and usability (Note: Recent updates include a button to view selected prompt templates in a dialog and displaying the configuration summary below the configuration details section):
+* **User Interface (Streamlit):** Further enhance the Streamlit application (`streamlit_app/`) for better analysis and usability (Note: Recent updates include buttons to view selected prompt templates and `config.yaml` in dialogs, placing these buttons side-by-side, and displaying the configuration summary below the configuration details section):
   * **Interactive Filtering:** Allow clicking on graph elements (e.g., bars) to filter the data tables below.
   * **Detailed Task Modal:** Implement a pop-up or dedicated view to show all details (prompt, responses, full evaluation) for a selected task row.
   * **Side-by-Side Comparison:** Add a mode to select two models and compare their responses and evaluations directly on the same tasks.
