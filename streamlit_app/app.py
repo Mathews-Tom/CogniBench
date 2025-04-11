@@ -197,53 +197,92 @@ with st.expander(
             )
             st.session_state.selected_template_name = None
 
-        # --- Button to View Template ---
-        view_template_button = st.button(
-            "View Selected Prompt Template",
-            key="view_template_btn",
-            disabled=not st.session_state.selected_template_name
-            or not AVAILABLE_TEMPLATES,
-        )
+        # --- Buttons Side-by-Side ---
+        btn_col1, btn_col2 = st.columns(2)
 
-        if view_template_button:
-            if st.session_state.selected_template_name and AVAILABLE_TEMPLATES:
-                try:
-                    selected_template_rel_path = AVAILABLE_TEMPLATES[
-                        st.session_state.selected_template_name
-                    ]
-                    selected_template_abs_path = (
-                        COGNIBENCH_ROOT / selected_template_rel_path
-                    )
-                    if selected_template_abs_path.is_file():
-                        template_content = selected_template_abs_path.read_text()
+        with btn_col1:
+            # --- Button to View Template ---
+            view_template_button = st.button(
+                "View Selected Prompt Template",
+                key="view_template_btn",
+                disabled=not st.session_state.selected_template_name
+                or not AVAILABLE_TEMPLATES,
+                use_container_width=True # Make button fill column
+            )
 
-                        @st.dialog(
-                            f"Prompt Template: {st.session_state.selected_template_name}"
+            if view_template_button:
+                if st.session_state.selected_template_name and AVAILABLE_TEMPLATES:
+                    try:
+                        selected_template_rel_path = AVAILABLE_TEMPLATES[
+                            st.session_state.selected_template_name
+                        ]
+                        selected_template_abs_path = (
+                            COGNIBENCH_ROOT / selected_template_rel_path
                         )
-                        def show_template_dialog():
-                            st.text_area(
-                                "Template Content",
-                                value=template_content,
-                                height=400,  # Increased height for dialog
-                                disabled=True,
-                                key="dialog_template_content_display",
-                            )
-                            if st.button("Close", key="close_template_dialog"):
-                                st.rerun()  # Close dialog by rerunning
+                        if selected_template_abs_path.is_file():
+                            template_content = selected_template_abs_path.read_text()
 
-                        show_template_dialog()  # Call the dialog function
+                            @st.dialog(
+                                f"Prompt Template: {st.session_state.selected_template_name}"
+                            )
+                            def show_template_dialog():
+                                st.text_area(
+                                    "Template Content",
+                                    value=template_content,
+                                    height=400,  # Increased height for dialog
+                                    disabled=True,
+                                    key="dialog_template_content_display",
+                                )
+                                if st.button("Close", key="close_template_dialog"):
+                                    st.rerun()  # Close dialog by rerunning
+
+                            show_template_dialog()  # Call the dialog function
+
+                        else:
+                            # Display warning within the main expander if file not found
+                            st.warning(
+                                f"Selected template file not found: {selected_template_abs_path}"
+                            )
+                    except Exception as e:
+                        # Display error within the main expander if reading fails
+                        st.error(f"Error reading template file: {e}")
+                else:
+                    # Display warning within the main expander if no template selected
+                    st.warning("Please select a template first.")
+
+        with btn_col2:
+            # --- Button to View Config ---
+            view_config_button = st.button(
+                "View config.yaml",
+                key="view_config_btn",
+                use_container_width=True # Make button fill column
+            )
+
+            if view_config_button:
+                try:
+                    if BASE_CONFIG_PATH.is_file():
+                        config_content = BASE_CONFIG_PATH.read_text()
+
+                        @st.dialog("Config File: config.yaml")
+                        def show_config_dialog():
+                            st.text_area(
+                                "Config Content",
+                                value=config_content,
+                                height=400,
+                                disabled=True,
+                                key="dialog_config_content_display",
+                            )
+                            if st.button("Close", key="close_config_dialog"):
+                                st.rerun() # Close dialog by rerunning
+
+                        show_config_dialog() # Call the dialog function
 
                     else:
                         # Display warning within the main expander if file not found
-                        st.warning(
-                            f"Selected template file not found: {selected_template_abs_path}"
-                        )
+                        st.warning(f"Config file not found: {BASE_CONFIG_PATH}")
                 except Exception as e:
                     # Display error within the main expander if reading fails
-                    st.error(f"Error reading template file: {e}")
-            else:
-                # Display warning within the main expander if no template selected
-                st.warning("Please select a template first.")
+                    st.error(f"Error reading config file: {e}")
 
 # --- Display Current Configuration Summary (Moved Outside Expander) ---
 st.subheader("Current Judge Configuration Summary")
