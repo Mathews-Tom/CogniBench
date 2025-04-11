@@ -303,7 +303,7 @@ if st.session_state.get("evaluation_running", False):
     # Add progress bar and text
     progress_bar = progress_area.progress(0.0)  # Initialize with float
     progress_text = progress_area.text("Starting evaluation...")
-    log_expander = st.expander("Show Full Logs", expanded=True)  # Expand by default now
+    log_expander = st.expander("Show Full Logs", expanded=False) # Collapsed by default
     log_placeholder = log_expander.empty()
     # Display current logs immediately
     log_placeholder.code(
@@ -533,6 +533,12 @@ if st.session_state.get("evaluation_running", False):
             st.rerun()
 
 
+# --- Display Final Logs After Completion ---
+if not st.session_state.get("evaluation_running", False) and st.session_state.get("last_run_output"):
+    st.subheader("Final Evaluation Logs")
+    with st.expander("Show Full Logs", expanded=False):
+        st.code("\n".join(st.session_state.last_run_output[-1000:]), language="log") # Show last 1000 lines
+
 # --- Clear Cache Logic ---
 if clear_cache_button:
     # Define potential cache file paths relative to CogniBench root
@@ -668,13 +674,14 @@ def load_and_process_results(results_paths):
 
 
 # --- Load data if results paths exist ---
-# Load data only when evaluation finishes
-just_finished = (
-    st.session_state.previous_evaluation_running
-    and not st.session_state.evaluation_running
-)
-if just_finished and st.session_state.evaluation_results_paths:
+# Load data if evaluation is not running, paths exist, and data isn't already loaded
+if (
+    not st.session_state.get("evaluation_running", False)
+    and st.session_state.get("evaluation_results_paths")
+    and st.session_state.get("results_df") is None # Only load if not already loaded
+):
     with st.spinner("Loading and processing results..."):
+        # Use the cached function to load data
         st.session_state.results_df = load_and_process_results(
             st.session_state.evaluation_results_paths
         )
