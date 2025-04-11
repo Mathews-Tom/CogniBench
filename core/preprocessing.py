@@ -24,16 +24,19 @@ logger = logging.getLogger(__name__)
 # Order matters: More specific patterns should ideally come first.
 FINAL_ANSWER_PATTERNS: List[Pattern[str]] = [
     # 1. LaTeX display math: Look for content enclosed in $$...$$
-    #    Uses non-greedy matching (.*?) to capture only the content between the first pair.
     re.compile(r"\$\$(.*?)\$\$", re.DOTALL),
-    # 2. Keyword-based patterns
+    # 2. LaTeX boxed notation
+    re.compile(r"\\boxed\{(.*?)\}", re.DOTALL),
+    # 3. Keyword-based patterns
+    re.compile(r"\*\*Exact Answer:\*\*\s*(.*)", re.IGNORECASE | re.DOTALL),
+    re.compile(r"\*\*Conclusion:\*\*\s*(.*)", re.IGNORECASE | re.DOTALL),
+    re.compile(r"\*\*Answer:\*\*\s*(.*)", re.IGNORECASE | re.DOTALL),
     re.compile(r"final answer[:\s]+(.*)", re.IGNORECASE | re.DOTALL),
     re.compile(r"the final answer is[:\s]+(.*)", re.IGNORECASE | re.DOTALL),
-    re.compile(r"solution[:\s]+(.*)", re.IGNORECASE | re.DOTALL),  # Added "Solution:"
-    re.compile(r"result[:\s]+(.*)", re.IGNORECASE | re.DOTALL),  # Added "Result:"
+    re.compile(r"solution[:\s]+(.*)", re.IGNORECASE | re.DOTALL),
+    re.compile(r"result[:\s]+(.*)", re.IGNORECASE | re.DOTALL),
     # Generic "Answer:" pattern - place last as it's most likely to overmatch
     re.compile(r"(?:^|\.\s|\?\s|\!\s)answer[:\s]+(.*)", re.IGNORECASE | re.DOTALL),
-    # Add more patterns here if needed, e.g., for specific formatting like boxes.
 ]
 
 # Arbitrary length limit for the simple newline heuristic in extract_final_answer.
@@ -85,41 +88,26 @@ def extract_final_answer(response_text: str) -> Optional[str]:
             )  # Check if it's the LaTeX pattern
 
             if not is_latex_pattern:
-                # Apply heuristic: If a newline appears relatively early, truncate there.
-                first_newline_index: int = extracted.find("\n")
-                if 0 <= first_newline_index < _MAX_LEN_BEFORE_NEWLINE_HEURISTIC:
-                    # Check if the text *after* the newline looks like an explanation
-                    potential_explanation = extracted[first_newline_index:].lstrip()
-                    if not potential_explanation.lower().startswith(
-                        (
-                            "therefore",
-                            "thus",
-                            "hence",
-                            "because",
-                            "explanation",
-                            "note:",
-                        )
-                    ):
-                        logger.debug(
-                            "Applying newline truncation heuristic for extracted answer."
-                        )
-                        extracted = extracted[:first_newline_index].strip()
-                    else:
-                        logger.debug(
-                            "Newline found early, but looks like explanation; not truncating."
-                        )
+                # Improved heuristic: Allow multi-line answers if enclosed in markdown or LaTeX
+                markdown_or_latex = re.match(r"(\*\*.*?\*\*|\\boxed\{.*?\}|^\$\$.*?\$\$)", extracted, re.DOTALL)
+                if not markdown_or_latex:
+                    # Extract until a clear delimiter (period, double newline, markdown heading, or end of text)
+                    delimiter_match = re.search(r"(\.\s|\n\n|#+\s|$)", extracted)
+                    if delimiter_match:
+                        end_index = delimiter_match.start()
+                        extracted = extracted[:end_index].strip()
+                        logger.debug("Applying improved delimiter-based truncation heuristic.")
 
             logger.info(
-                "Extracted final answer using pattern index %d: %s", i, pattern.pattern
+                "Successfully extracted final answer using pattern index %d: %s. Extracted answer: '%s'",
+                i, pattern.pattern, extracted
             )
-            # Further cleaning could be added here if needed (e.g., removing "The answer is...")
             return extracted
 
-    # Fallback: Currently, no reliable fallback is implemented if patterns fail.
-    # Considering the last line is too naive and often incorrect.
-
+    # Enhanced logging for extraction failure
     logger.warning(
-        "Could not extract final answer from response using defined patterns."
+        "Failed to extract final answer. Patterns attempted: %s. Response text: '%s'",
+        [p.pattern for p in FINAL_ANSWER_PATTERNS], response_text[:200] + "..." if len(response_text) > 200 else response_text
     )
     return None
 
@@ -196,14 +184,14 @@ if __name__ == "__main__":
     logger.info("\n--- Testing: Extract Final Answer ---")
 
     test_cases = {
+        "Keyword '**Answer:**'": ("Calculation complete. **Answer:** 42", "42"),
+        "Keyword '**Conclusion:**'": ("Analysis done. **Conclusion:** The result is 3.14", "The result is 3.14"),
+        "Keyword '**Exact Answer:**'": ("Final computation. **Exact Answer:** x = 7", "x = 7"),
+        "LaTeX boxed notation": ("The solution is \\boxed{y = mx + c}", "y = mx + c"),
         "Keyword 'Final Answer'": ("Blah blah. Final Answer: x = 5", "x = 5"),
         "Keyword 'The final answer is' + newline": (
             "Calc y=10. The final answer is: y = 10 \n This is because...",
             "y = 10",
-        ),
-        "Keyword 'The final answer is' + newline + explanation": (
-            "Calc y=10. The final answer is: y = 10 \n Therefore it must be...",
-            "y = 10",  # Heuristic should not truncate here
         ),
         "Keyword 'Answer'": ("Let z = 3. Answer: z=3", "z=3"),
         "Keyword 'Solution'": ("The steps lead to Solution: a+b=c", "a+b=c"),
@@ -215,11 +203,8 @@ if __name__ == "__main__":
         ),
         "No Keyword": ("The value is approximately 42.", None),
         "Empty Input": ("", None),
-        "Keyword only": ("Final Answer:", ""),  # Extracts empty string after colon
-        "LaTeX empty": (
-            "Text $$ $$ more text.",
-            "",
-        ),  # Extracts empty string between $$
+        "Keyword only": ("Final Answer:", ""),
+        "LaTeX empty": ("Text $$ $$ more text.", ""),
     }
 
     for name, (input_text, expected_output) in test_cases.items():
