@@ -2,7 +2,8 @@
 # Version: 1.0
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
 
 class BaseLLMClient(ABC):
     """
@@ -17,7 +18,7 @@ class BaseLLMClient(ABC):
         model_name: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.0,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> Dict[str, Any]:
         """
         Invokes the specified language model with the given prompt and parameters.
