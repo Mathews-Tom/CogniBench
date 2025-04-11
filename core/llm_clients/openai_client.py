@@ -136,14 +136,24 @@ class OpenAIClient(BaseLLMClient):
         try:
             logger.debug(
                 f"--- Cache MISS. Invoking OpenAI model: {model_name} (key: {cache_key[:8]}...) ---"
-            )  # Changed to debug
-            response = self.client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                temperature=temperature,
-                **kwargs,  # Pass through other arguments like max_tokens, response_format
             )
-            logger.debug("--- OpenAI Invocation Complete ---")  # Changed to debug
+
+            # Conditional temperature handling
+            if model_name.lower() in ["o1"]:
+                response = self.client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    **kwargs,  # Omit temperature for models that don't support it
+                )
+            else:
+                response = self.client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    temperature=0.0,  # deterministic output for evaluation
+                    **kwargs,
+                )
+
+            logger.debug("--- OpenAI Invocation Complete ---")
 
             raw_response_content = response.choices[0].message.content
             # You could add more metadata from the response if needed

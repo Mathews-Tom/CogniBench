@@ -159,7 +159,8 @@ sequenceDiagram
     * **Strategy:** May require multiple sequential prompts (e.g., one prompt per L1 parameter) or a single complex prompt. Experimentation needed. Single complex prompt is often preferred if context window allows, for better holistic understanding.
   * **C2. Judge LLM Invocation:**
     * Sends the constructed prompt to the chosen Judge LLM API (e.g., OpenAI API, Claude API, Gemini API).
-    * Handles API parameters (model selection, temperature=0 for consistency, max tokens, potential use of Function Calling/Tool Use or JSON mode).
+    * Recommended temperature setting is explicitly `0.0` to ensure deterministic, consistent, and reproducible outputs for rigorous evaluations.
+    * Handles API parameters (model selection, temperature setting, max tokens, potential use of Function Calling/Tool Use or JSON mode).
     * Manages retries and error handling for API calls.
   * **C3. Response Parser:**
     * Receives the raw output from the Judge LLM.
