@@ -22,7 +22,9 @@ Evaluating LLMs on complex reasoning tasks, especially in specialized fields lik
   * Configuration validation on script startup.
 * **Robust Answer Verification and LaTeX Handling:**
   * Enhanced preprocessing module with robust LaTeX notation handling, converting various wrappers (`$...$`, `$$...$$`, `\(...\)`, `\[...\]`) into standardized formats.
-  * Improved answer extraction patterns and heuristics for accurate final answer extraction.
+  * Significantly expanded regex patterns for final answer extraction, explicitly covering "**Answer:**", "**Conclusion:**", "**Exact Answer:**", and LaTeX boxed notation (`\boxed{}`).
+  * Improved heuristic logic to accurately handle multi-line and markdown-formatted answers.
+  * Enhanced logging for detailed debugging and transparency during the extraction process.
   * Mathematical equivalence checking using `sympy` (if installed) for accurate verification of math/symbolic answers, with fallback to string comparison.
 * **Improved Error Handling:** Response parser reports all validation errors found, not just the first.
 * **Data Management:** Structured way to handle prompts, ideal responses, model responses, and evaluation results. Output files are organized into timestamped subdirectories for each batch run.

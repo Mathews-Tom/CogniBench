@@ -140,7 +140,7 @@ sequenceDiagram
   * **Sub-Tasks:**
     * *Format Normalization:* Basic text normalization (Unicode, whitespace).
     * *LaTeX Notation Conversion:* Robust handling of LaTeX math notation, converting various wrappers (`$...$`, `$$...$$`, `\(...\)`, `\[...\]`) into standardized formats for consistent downstream processing.
-    * *Model Final Answer Extraction:* Uses refined regex patterns and heuristics to accurately extract the final answer stated within the `MODEL RESPONSE`.
+    * *Model Final Answer Extraction:* Significantly expanded regex patterns explicitly covering "**Answer:**", "**Conclusion:**", "**Exact Answer:**", and LaTeX boxed notation (`\boxed{}`). Improved heuristic logic to accurately handle multi-line and markdown-formatted answers. Enhanced logging for detailed debugging and transparency during the extraction process.
     * *(Future) Response Segmentation:* (Not currently implemented) Could break down responses into logical sections.
     * *(Future) Sanitization:* (Not currently implemented) Could remove sensitive content if needed.
 * **C. Evaluation Core (LLM Judge):**
