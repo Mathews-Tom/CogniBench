@@ -32,7 +32,7 @@ FINAL_ANSWER_PATTERNS: List[Pattern[str]] = [
     re.compile(r"solution[:\s]+(.*)", re.IGNORECASE | re.DOTALL),  # Added "Solution:"
     re.compile(r"result[:\s]+(.*)", re.IGNORECASE | re.DOTALL),  # Added "Result:"
     # Generic "Answer:" pattern - place last as it's most likely to overmatch
-    re.compile(r"answer[:\s]+(.*)", re.IGNORECASE | re.DOTALL),
+    re.compile(r"(?:^|\.\s|\?\s|\!\s)answer[:\s]+(.*)", re.IGNORECASE | re.DOTALL),
     # Add more patterns here if needed, e.g., for specific formatting like boxes.
 ]
 
@@ -160,6 +160,34 @@ def normalize_text_formats(text: Optional[str]) -> Optional[str]:
     stripped_text: str = whitespace_normalized_text.strip()
 
     return stripped_text
+
+
+# --- Additional Functionality: LaTeX Math Notation Conversion ---
+# Precompiled regex patterns for performance
+INLINE_MATH_PATTERN = re.compile(r"(?<!\\)\\\((.+?)\\\)", flags=re.DOTALL)
+DISPLAY_MATH_PATTERN = re.compile(r"(?<!\\)\\\[(.+?)\\\]", flags=re.DOTALL)
+
+
+def convert_math_notation(text: Optional[str]) -> Optional[str]:
+    """
+    Convert LaTeX math notation to standardized format for Jupyter notebooks or similar environments.
+
+    Args:
+        text (str): Input text containing LaTeX math notation.
+
+    Returns:
+        str: Text with standardized LaTeX math notation.
+    """
+    if not text:
+        return text
+
+    # Convert inline math \( ... \) to $...$
+    text = INLINE_MATH_PATTERN.sub(r"$\1$", text)
+
+    # Convert display math \[ ... \] to $$...$$
+    text = DISPLAY_MATH_PATTERN.sub(r"$$\1$$", text)
+
+    return text
 
 
 if __name__ == "__main__":
