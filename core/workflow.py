@@ -28,7 +28,7 @@ from .output_writer import save_evaluation_result
 from .postprocessing import perform_postprocessing  # Updated import
 
 # Import core components
-from .preprocessing import extract_final_answer, normalize_text_formats
+from .preprocessing import extract_final_answer, normalize_text_formats, convert_math_notation
 
 # Removed: from .prompt_templates import FULL_L1_JUDGE_PROMPT_TEMPLATE
 from .response_parser import parse_judge_response
@@ -197,11 +197,14 @@ def run_evaluation_workflow(
     logger.debug("Step 2: Preprocessing inputs...")
     norm_model_response_text = normalize_text_formats(response)
     norm_ideal_response_text = normalize_text_formats(ideal_response)
-    norm_prompt_content = normalize_text_formats(
-        prompt
-    )  # Normalize prompt too for consistency
+    norm_prompt_content = normalize_text_formats(prompt)
+
+    # Convert LaTeX math notation to standardized format
+    norm_model_response_text = convert_math_notation(norm_model_response_text)
+    norm_ideal_response_text = convert_math_notation(norm_ideal_response_text)
+    norm_prompt_content = convert_math_notation(norm_prompt_content)
+
     # Use the normalized ideal response as the 'correct answer' for template filling and verification for now.
-    # TODO: Revisit if 'correct_answer' needs separate handling or configuration.
     norm_correct_answer_text = norm_ideal_response_text
     # Attempt to extract the final answer part from the model's response
     extracted_answer = extract_final_answer(norm_model_response_text)
