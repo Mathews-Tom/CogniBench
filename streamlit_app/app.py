@@ -128,6 +128,8 @@ if "worker_thread" not in st.session_state:
     st.session_state.worker_thread = None
 if "output_queue" not in st.session_state:
     st.session_state.output_queue = queue.Queue()
+if "stop_event" not in st.session_state:
+    st.session_state.stop_event = threading.Event()
 
 
 # --- Configuration Widgets (within Expander) ---
@@ -207,7 +209,7 @@ with st.expander(
                 key="view_template_btn",
                 disabled=not st.session_state.selected_template_name
                 or not AVAILABLE_TEMPLATES,
-                use_container_width=True # Make button fill column
+                use_container_width=True,  # Make button fill column
             )
 
             if view_template_button:
@@ -255,7 +257,7 @@ with st.expander(
             view_config_button = st.button(
                 "View config.yaml",
                 key="view_config_btn",
-                use_container_width=True # Make button fill column
+                use_container_width=True,  # Make button fill column
             )
 
             if view_config_button:
@@ -273,9 +275,9 @@ with st.expander(
                                 key="dialog_config_content_display",
                             )
                             if st.button("Close", key="close_config_dialog"):
-                                st.rerun() # Close dialog by rerunning
+                                st.rerun()  # Close dialog by rerunning
 
-                        show_config_dialog() # Call the dialog function
+                        show_config_dialog()  # Call the dialog function
 
                     else:
                         # Display warning within the main expander if file not found
@@ -395,11 +397,10 @@ def validate_config(config: Dict[str, Any]) -> bool:
 
 
 # --- Function to run evaluation in a separate thread ---
-def run_evaluation_script(input_file_path, config_file_path, output_queue):
+def run_evaluation_script(input_file_path, config_file_path, output_queue, stop_event):
     """Runs the batch evaluation script and puts output lines into a queue."""
-    # output_queue.put("DEBUG (Thread): Entered run_evaluation_script function.") # Keep commented
     command = [
-        sys.executable,  # Use the same python interpreter running streamlit
+        sys.executable,
         str(RUN_BATCH_SCRIPT_PATH),
         str(input_file_path),
         "--config",
@@ -411,21 +412,24 @@ def run_evaluation_script(input_file_path, config_file_path, output_queue):
         process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,  # Redirect stderr to stdout
+            stderr=subprocess.STDOUT,
             text=True,
             encoding="utf-8",
-            errors="replace",  # Handle potential encoding errors
-            cwd=COGNIBENCH_ROOT,  # Run script from the project root
-            bufsize=1,  # Line buffered
+            errors="replace",
+            cwd=COGNIBENCH_ROOT,
+            bufsize=1,
         )
 
-        # Read stdout line by line
         if process.stdout:
             for line in iter(process.stdout.readline, ""):
+                if stop_event.is_set():
+                    process.terminate()
+                    output_queue.put("INFO: Evaluation stopped by user request.")
+                    break
                 output_queue.put(line.strip())
             process.stdout.close()
 
-        process.wait()  # Wait for the process to complete
+        process.wait()
         output_queue.put(f"INFO: Process finished with exit code {process.returncode}")
 
     except FileNotFoundError:
@@ -435,6 +439,8 @@ def run_evaluation_script(input_file_path, config_file_path, output_queue):
     except Exception as e:
         output_queue.put(f"ERROR: An unexpected error occurred: {e}")
     finally:
+        output_queue.put(None)
+        stop_event.clear()
         # output_queue.put("DEBUG (Thread): Reached finally block, putting None.") # Keep commented
         output_queue.put(None)  # Signal completion
 
@@ -456,17 +462,20 @@ if run_button and uploaded_files and st.session_state.selected_template_name:
     st.rerun()  # Rerun to disable button and show progress area
 
 if st.session_state.get("evaluation_running", False):
-    st.header("Evaluation Progress")
+    st.header("Evaluation Progress ⏳")
     progress_area = st.container()
-    # Add progress bar and text
-    progress_bar = progress_area.progress(0.0)  # Initialize with float
-    progress_text = progress_area.text("Starting evaluation...")
-    log_expander = st.expander("Show Full Logs", expanded=False)  # Collapsed by default
+    stop_button = st.button("🛑 Stop Processing", type="primary")
+    if stop_button:
+        st.session_state.stop_event.set()
+    log_expander = st.expander("Show Full Logs", expanded=False)
     log_placeholder = log_expander.empty()
-    # Display current logs immediately
-    log_placeholder.code(
-        "\n".join(st.session_state.last_run_output[-1000:]), language="log"
-    )
+
+    with st.spinner("Evaluations running... Please wait."):
+        progress_bar = progress_area.progress(0.0)
+        progress_text = progress_area.text("Starting evaluation...")
+        log_placeholder.code(
+            "\n".join(st.session_state.last_run_output[-1000:]), language="log"
+        )
 
     current_index = st.session_state.get("current_file_index", 0)
     total_files = len(uploaded_files) if uploaded_files else 0
@@ -540,7 +549,7 @@ if st.session_state.get("evaluation_running", False):
             st.session_state.output_queue = queue.Queue()
             st.session_state.worker_thread = threading.Thread(
                 target=run_evaluation_script,
-                args=(temp_input_path, temp_config_path, st.session_state.output_queue),
+                args=(temp_input_path, temp_config_path, st.session_state.output_queue, st.session_state.stop_event),
                 daemon=True,
             )
             st.session_state.worker_thread.start()
