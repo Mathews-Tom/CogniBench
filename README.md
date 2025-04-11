@@ -15,14 +15,15 @@ Evaluating LLMs on complex reasoning tasks, especially in specialized fields lik
 
 * **LLM-as-a-Judge Evaluation:** Leverages a powerful LLM to assess the quality and correctness of other LLMs' responses.
 * **Specialized Domain Focus:** Tailored for evaluating performance on advanced Math & STE problems.
-* **Modular Workflow:** Clearly defined steps for preprocessing, LLM invocation, response parsing, evaluation, and postprocessing.
+* **Modular Workflow:** Clearly defined steps for preprocessing (including LaTeX conversion), LLM invocation, response parsing, evaluation, and postprocessing.
 * **Configurable Evaluation:**
   * Judge LLM (provider, model), prompt template, expected rubric criteria, and allowed scores are defined in `config.yaml`.
   * Support structure for multiple LLM providers (OpenAI, Anthropic, Google placeholders).
   * Configuration validation on script startup.
-* **Robust Answer Verification:**
-  * Enhanced answer extraction patterns (including LaTeX `$$...$$`).
-  * Mathematical equivalence checking using `sympy` (if installed) for more accurate verification of math/symbolic answers, with fallback to string comparison.
+* **Robust Answer Verification and LaTeX Handling:**
+  * Enhanced preprocessing module with robust LaTeX notation handling, converting various wrappers (`$...$`, `$$...$$`, `\(...\)`, `\[...\]`) into standardized formats.
+  * Improved answer extraction patterns and heuristics for accurate final answer extraction.
+  * Mathematical equivalence checking using `sympy` (if installed) for accurate verification of math/symbolic answers, with fallback to string comparison.
 * **Improved Error Handling:** Response parser reports all validation errors found, not just the first.
 * **Data Management:** Structured way to handle prompts, ideal responses, model responses, and evaluation results. Output files are organized into timestamped subdirectories for each batch run.
 * **Batch Processing:** Includes scripts for ingesting raw data and running evaluations on entire batches.
