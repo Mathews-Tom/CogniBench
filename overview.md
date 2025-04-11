@@ -189,4 +189,6 @@ graph LR
 * **Visual Understanding:** Integrate capabilities into CogniBench to analyze diagrams or plots if they are part of the prompt or response (requires multi-modal models).
 * **Automated Ideal Response Generation (Research):** Explore using powerful LLMs within the CogniBench workflow to *generate* the `IDEAL RESPONSE` as a starting point for human experts, speeding up the process.
 * **Integration with L0:** Tightly integrate the L1 Judge output from CogniBench back into the L0 Golden Prompt Discovery process for richer failure analysis.
-* **User Interface (In Progress):** A Streamlit application (`streamlit_app/`) is being developed to provide a user-friendly interface for uploading batch files, configuring evaluations, running the process, and visualizing results.
+* **User Interface (Streamlit):** A Streamlit application (`streamlit_app/`) provides a user-friendly interface for uploading batch files, configuring the LLM judge, running the evaluation process, and visualizing results. Recent enhancements include:
+    * Improved log display: Logs are shown in a collapsed view during execution and persist after completion.
+    * Persistent visualizations: Result charts (overall performance, rubric breakdown) now reliably appear after evaluation and remain visible.
