@@ -547,7 +547,12 @@ if st.session_state.get("evaluation_running", False):
             st.session_state.output_queue = queue.Queue()
             st.session_state.worker_thread = threading.Thread(
                 target=run_evaluation_script,
-                args=(temp_input_path, temp_config_path, st.session_state.output_queue, st.session_state.stop_event),
+                args=(
+                    temp_input_path,
+                    temp_config_path,
+                    st.session_state.output_queue,
+                    st.session_state.stop_event,
+                ),
                 daemon=True,
             )
             st.session_state.worker_thread.start()
@@ -923,8 +928,8 @@ if st.session_state.results_df is not None:
                 .size()
                 .reset_index(name="count")
             )
-            category_orders = {agg_score_col: ["Pass", "Fail", "N/A"]}
-            color_map = {"Pass": "green", "Fail": "red", "N/A": "grey"}
+            category_orders = {agg_score_col: ["Pass", "Fail", "None"]}
+            color_map = {"Pass": "green", "Fail": "red", "None": "#FFB8B3"}
 
             fig_perf = px.bar(
                 performance_counts,
@@ -1174,4 +1179,3 @@ elif (
 
 # Update previous running state at the very end of the script run
 st.session_state.previous_evaluation_running = st.session_state.evaluation_running
-
