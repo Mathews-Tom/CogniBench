@@ -29,6 +29,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_JUDGE_LLM_PROVIDER: str = "openai"
 DEFAULT_JUDGE_LLM_MODEL: str = "gpt-4o"
 DEFAULT_PROMPT_TEMPLATE_PATH: str = "prompts/judging/Math-L1-judge-v1.0.txt"
+DEFAULT_STRUCTURING_TEMPLATE_PATH: str = (
+    "prompts/structuring/Math-L1-structuring-v1.0.txt"
+)
+MAX_RETRIES: int = 3
 
 
 def run_evaluation_workflow(
@@ -61,30 +65,79 @@ def run_evaluation_workflow(
     expected_criteria: Optional[List[str]] = eval_config.get("expected_criteria")
     allowed_scores: Optional[List[str]] = eval_config.get("allowed_scores")
 
-    if structured:
-        logger.info(
-            "Using structured responses for evaluation (task_id: %s, model_id: %s)",
-            task_id,
-            model_id,
-        )
-        structured_model_response = response
-        structured_ideal_response = ideal_response
-        norm_model_response_text = json.dumps(structured_model_response)
-        norm_ideal_response_text = json.dumps(structured_ideal_response)
-    else:
-        structured_model_response = None
-        structured_ideal_response = None
-        norm_model_response_text = normalize_text_formats(response)
-        norm_ideal_response_text = normalize_text_formats(ideal_response)
-
     norm_prompt_content = normalize_text_formats(prompt)
-    norm_correct_answer_text = normalize_text_formats(correct_answer)
-    extracted_answer = extract_final_answer(norm_model_response_text)
 
     if llm_client is None:
         active_llm_client = OpenAIClient()
     else:
         active_llm_client = llm_client
+    norm_model_response_text = normalize_text_formats(response)
+    norm_ideal_response_text = normalize_text_formats(ideal_response)
+
+    # Structuring step (mandatory before judging)
+    structuring_template_path: str = config.get("structuring_settings", {}).get(
+        "prompt_template", DEFAULT_STRUCTURING_TEMPLATE_PATH
+    )
+    structuring_prompt_template = load_prompt_template(structuring_template_path)
+    if structuring_prompt_template is None:
+        msg = f"Failed to load structuring prompt template from '{structuring_template_path}'."
+        logger.error(msg)
+        return {"status": "error", "message": msg}
+
+    structuring_filled_prompt = structuring_prompt_template.format(
+        prompt=norm_prompt_content,
+        model_response=norm_model_response_text,
+        ideal_response=norm_ideal_response_text,
+    )
+
+    structuring_system_prompt = (
+        "You are an expert structurer preparing responses for rigorous evaluation."
+    )
+    structuring_response = None
+    # Get structuring model name for logging
+    structuring_model_name = config.get("structuring_settings", {}).get(
+        "structuring_model", judge_llm_model
+    )
+    # Log structuring call
+    logger.info(
+        "STRUCTURING_CALL: task_id=%s, model_id=%s, structuring_model=%s",
+        task_id,
+        model_id,
+        structuring_model_name,
+    )
+    for attempt in range(MAX_RETRIES):
+        structuring_response = active_llm_client.invoke(
+            prompt=structuring_filled_prompt,
+            model_name=config.get("structuring_settings", {}).get(
+                "structuring_model", judge_llm_model
+            ),
+            system_prompt=structuring_system_prompt,
+            temperature=0.0,
+        )
+        if "error" not in structuring_response:
+            break
+        logger.warning(
+            "Structuring attempt %d failed: %s",
+            attempt + 1,
+            structuring_response["error"],
+        )
+    else:
+        msg = f"Structuring LLM invocation failed after {MAX_RETRIES} attempts."
+        logger.error(msg)
+        return {"status": "error", "message": msg}
+
+    structured_model_response = structuring_response.get("raw_content", "")
+    structured_ideal_response = (
+        norm_ideal_response_text  # Assuming ideal response doesn't need structuring
+    )
+
+    norm_model_response_text = json.dumps(structured_model_response)
+    norm_ideal_response_text = json.dumps(structured_ideal_response)
+
+    norm_prompt_content = normalize_text_formats(prompt)
+    norm_correct_answer_text = normalize_text_formats(correct_answer)
+    extracted_answer = extract_final_answer(norm_model_response_text)
+
 
     prompt_template = load_prompt_template(prompt_template_path)
     if prompt_template is None:
@@ -100,12 +153,28 @@ def run_evaluation_workflow(
     )
 
     judge_system_prompt = "You are an expert mathematician and rigorous evaluator assessing an AI model's response."
-    llm_response: Dict[str, Any] = active_llm_client.invoke(
-        prompt=filled_prompt,
-        model_name=judge_llm_model,
-        system_prompt=judge_system_prompt,
-        temperature=0.0,
+    llm_response = None
+    # Log judging call
+    logger.info(
+        "JUDGING_CALL: task_id=%s, model_id=%s, judge_model=%s",
+        task_id,
+        model_id,
+        judge_llm_model,
     )
+    for attempt in range(MAX_RETRIES):
+        llm_response = active_llm_client.invoke(
+            prompt=filled_prompt,
+            model_name=judge_llm_model,
+            system_prompt=judge_system_prompt,
+            temperature=0.0,
+        )
+        if "error" not in llm_response:
+            break
+        logger.warning("Judging attempt %d failed: %s", attempt + 1, llm_response["error"])
+    else:
+        msg = f"Judging LLM invocation failed after {MAX_RETRIES} attempts."
+        logger.error(msg)
+        return {"status": "error", "message": msg}
 
     if "error" in llm_response:
         msg = f"Judge LLM invocation failed: {llm_response['error']}"
@@ -123,6 +192,7 @@ def run_evaluation_workflow(
         parsed_judge_response=parsed_data,
         extracted_final_answer=extracted_answer,
         correct_final_answer=norm_correct_answer_text,
+        config=config,
     )
 
     evaluation_id = f"eval_{uuid.uuid4()}"

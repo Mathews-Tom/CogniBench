@@ -86,10 +86,13 @@ def extract_structured_response(response_text: str) -> Optional[str]:
 
 
 def extract_final_answer(response_text: str) -> Optional[str]:
-    # First attempt structured JSON parsing
-    structured_answer = extract_structured_response(response_text)
-    if structured_answer:
-        return structured_answer
+    # First attempt structured JSON parsing explicitly
+    structured_data = safe_json_parse(response_text)
+    if isinstance(structured_data, dict):
+        final_answer = structured_data.get("final_answer")
+        if final_answer:
+            logger.info("Successfully extracted final answer from structured JSON.")
+            return final_answer.strip()
 
     """
     Attempts to extract the final answer segment from a model's response text.

@@ -25,6 +25,35 @@ except ImportError:
 # Get logger for this module
 logger = logging.getLogger(__name__)
 
+import re
+
+def robust_latex_conversion(text):
+    """
+    Robustly converts common LaTeX formatting issues to plain text.
+    """
+    if not text:
+        return text
+    # Replace common LaTeX math delimiters
+    text = re.sub(r"\$\$(.*?)\$\$", r"\1", text)
+    text = re.sub(r"\$(.*?)\$", r"\1", text)
+    # Remove LaTeX commands
+    text = re.sub(r"\\[a-zA-Z]+", "", text)
+    # Remove curly braces
+    text = re.sub(r"[{}]", "", text)
+    return text.strip()
+
+def enhanced_final_answer_extraction(raw_pref_form):
+    """
+    Enhanced extraction logic for final answers using improved regex patterns.
+    """
+    final_answer = extract_prompt_evaluation_value(raw_pref_form, "Final Answer")
+    if final_answer:
+        # Robust LaTeX conversion
+        final_answer = robust_latex_conversion(final_answer)
+        # Additional heuristic: remove leading/trailing whitespace and punctuation
+        final_answer = final_answer.strip().strip(".")
+    return final_answer
+
 
 def extract_prompt_evaluation_value(prompt_eval_list, key_name):
     """Helper function to extract specific values from prompt_evaluation."""
@@ -60,7 +89,9 @@ def ingest_rlhf_data(input_path: Path, output_path: Path):
         logger.error("'rlhf' key not found or is not a list in the input JSON.")
         sys.exit(1)
 
-    for task_item in data["rlhf"]:
+    logger.info("Starting ingestion of %d tasks.", len(data["rlhf"]))
+    for idx, task_item in enumerate(data["rlhf"], start=1):
+        logger.debug("Processing task %d/%d: Task ID %s", idx, len(data["rlhf"]), task_item.get("taskId"))
         task_id = task_item.get("taskId")
         messages = task_item.get("messages", [])
 
@@ -95,9 +126,7 @@ def ingest_rlhf_data(input_path: Path, output_path: Path):
 
                 # Extract final answer from raw_preference_evaluation_form
                 raw_pref_form = signal.get("raw_preference_evaluation_form", [])
-                final_answer = extract_prompt_evaluation_value(
-                    raw_pref_form, "Final Answer"
-                )
+                final_answer = enhanced_final_answer_extraction(raw_pref_form)
 
                 # Extract model responses
                 response_options = message.get("response_options", [])
@@ -166,10 +195,12 @@ def ingest_rlhf_data(input_path: Path, output_path: Path):
                 },
             }
             ingested_data.append(ingested_item)
+            logger.debug("Successfully ingested task ID %s", task_id)
         else:
             # Print warnings to stderr
             logger.warning(
-                "Skipping task ID %s due to missing prompt or ideal response.", task_id
+                "Skipping task ID %s due to missing prompt or ideal response. Prompt: %s, Ideal Response: %s",
+                task_id, user_prompt is not None, ideal_response is not None
             )
 
     # Ensure the output directory exists using pathlib

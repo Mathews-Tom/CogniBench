@@ -7,6 +7,7 @@ import sys
 import tempfile
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional  # Added imports
 
@@ -42,6 +43,7 @@ st.set_page_config(layout="wide", page_title="CogniBench Runner")
 if "temp_dir_path" not in st.session_state:
     st.session_state.temp_dir = tempfile.TemporaryDirectory()
     st.session_state.temp_dir_path = Path(st.session_state.temp_dir.name)
+
 
 st.title("CogniBench Evaluation Runner")
 
@@ -99,11 +101,13 @@ with col_structuring:
     structuring_provider = st.selectbox(
         "Select Structuring Model Provider",
         options=list(AVAILABLE_MODELS.keys()),
+        index=0,  # Default to first provider
         key="structuring_provider_select",
     )
     structuring_model = st.selectbox(
         "Select Structuring Model",
         options=list(AVAILABLE_MODELS[structuring_provider].keys()),
+        index=0,  # Default to first model
         key="structuring_model_select",
     )
     structuring_api_key = st.text_input(
@@ -118,11 +122,13 @@ with col_judging:
     judging_provider = st.selectbox(
         "Select Judge Model Provider",
         options=list(AVAILABLE_MODELS.keys()),
+        index=0,  # Default to first provider
         key="judging_provider_select",
     )
     judging_model = st.selectbox(
         "Select Judge Model",
         options=list(AVAILABLE_MODELS[judging_provider].keys()),
+        index=0,  # Default to first model
         key="judging_model_select",
     )
     judging_api_key = st.text_input(
@@ -131,6 +137,23 @@ with col_judging:
         placeholder="Leave blank to use environment variable",
         key="judging_api_key_input",
     )
+
+# Validation logic for configuration completeness
+config_complete = all(
+    [
+        st.session_state.get("structuring_provider_select"),
+        st.session_state.get("structuring_model_select"),
+        st.session_state.get("judging_provider_select"),
+        st.session_state.get("judging_model_select"),
+        st.session_state.get("structuring_template_select"),
+        st.session_state.get("judging_template_select"),
+    ]
+)
+
+if config_complete:
+    st.success("✅ Configuration is complete.")
+else:
+    st.error("❌ Configuration is incomplete. Please ensure all fields are selected.")
 
 # Define available models based on the plan
 # Use requested provider names as keys
@@ -153,6 +176,20 @@ def get_templates(directory):
 AVAILABLE_STRUCTURING_TEMPLATES = get_templates(STRUCTURING_TEMPLATES_DIR)
 AVAILABLE_JUDGING_TEMPLATES = get_templates(JUDGING_TEMPLATES_DIR)
 
+
+# Explicitly initialize session state variables for default selections
+if "structuring_provider_select" not in st.session_state:
+    st.session_state["structuring_provider_select"] = list(AVAILABLE_MODELS.keys())[0]
+if "structuring_model_select" not in st.session_state:
+    st.session_state["structuring_model_select"] = list(AVAILABLE_MODELS[st.session_state["structuring_provider_select"]].keys())[0]
+if "judging_provider_select" not in st.session_state:
+    st.session_state["judging_provider_select"] = list(AVAILABLE_MODELS.keys())[0]
+if "judging_model_select" not in st.session_state:
+    st.session_state["judging_model_select"] = list(AVAILABLE_MODELS[st.session_state["judging_provider_select"]].keys())[0]
+if "structuring_template_select" not in st.session_state:
+    st.session_state["structuring_template_select"] = list(AVAILABLE_STRUCTURING_TEMPLATES.keys())[0] if AVAILABLE_STRUCTURING_TEMPLATES else None
+if "judging_template_select" not in st.session_state:
+    st.session_state["judging_template_select"] = list(AVAILABLE_JUDGING_TEMPLATES.keys())[0] if AVAILABLE_JUDGING_TEMPLATES else None
 
 # Initialize session state
 if "selected_provider" not in st.session_state:
@@ -370,7 +407,7 @@ def load_and_process_results(results_paths):
 action = st.radio(
     "Select Action",
     ["Run Evaluations", "Recreate Graphs from Existing Data"],
-    horizontal=True
+    horizontal=True,
 )
 
 if action == "Run Evaluations":
@@ -396,9 +433,16 @@ if action == "Run Evaluations":
 elif action == "Recreate Graphs from Existing Data":
     data_dir = COGNIBENCH_ROOT / "data"
     available_folders = sorted(
-        [f.name for f in data_dir.iterdir() if f.is_dir()],
+        [
+            f.name
+            for f in data_dir.iterdir()
+            if f.is_dir()
+            and (
+                data_dir / f"{f.name}/{f.name.split('_')[0]}_final_results.json"
+            ).exists()
+        ],
         key=lambda x: (data_dir / x).stat().st_mtime,
-        reverse=True
+        reverse=True,
     )
     selected_folders = st.multiselect(
         "Select folders to regenerate graphs from existing evaluation data:",
@@ -418,7 +462,9 @@ elif action == "Recreate Graphs from Existing Data":
                 st.warning(f"No final results file found in {folder}")
 
         if evaluation_results_paths:
-            st.session_state.results_df = load_and_process_results(evaluation_results_paths)
+            st.session_state.results_df = load_and_process_results(
+                evaluation_results_paths
+            )
             st.success("Graphs regenerated successfully!")
             st.rerun()
         else:
@@ -535,7 +581,12 @@ def run_evaluation_script(input_file_path, config_file_path, output_queue, stop_
 
 
 # --- Run Evaluation Logic ---
-if action == "Run Evaluations" and run_button and uploaded_files and st.session_state.selected_template_name:
+if (
+    action == "Run Evaluations"
+    and run_button
+    and uploaded_files
+    and st.session_state.selected_template_name
+):
     st.session_state.evaluation_running = True
     st.session_state.previous_evaluation_running = False  # Reset previous state tracker
     st.session_state.last_run_output = []
@@ -985,8 +1036,8 @@ if st.session_state.results_df is not None:
             f"Total evaluation time: {st.session_state.eval_duration_str}"
         )  # Display the new format
 
-    # --- Filters ---
-    st.sidebar.header("Filters")
+    # --- Enhanced Filters ---
+    st.sidebar.header("Enhanced Filters")
     available_models = (
         df["model_id"].unique().tolist() if "model_id" in df.columns else []
     )
@@ -994,15 +1045,23 @@ if st.session_state.results_df is not None:
     available_subjects = (
         df["subject"].unique().tolist() if "subject" in df.columns else []
     )
+    available_scores = (
+        df["aggregated_score"].unique().tolist()
+        if "aggregated_score" in df.columns
+        else []
+    )
 
     selected_models = st.sidebar.multiselect(
         "Filter by Model:", available_models, default=available_models
     )
     selected_tasks = st.sidebar.multiselect(
-        "Filter by Task ID:", available_tasks, default=[]
+        "Filter by Task ID:", available_tasks, default=available_tasks
     )
     selected_subjects = st.sidebar.multiselect(
         "Filter by Subject:", available_subjects, default=available_subjects
+    )
+    selected_scores = st.sidebar.multiselect(
+        "Filter by Aggregated Score:", available_scores, default=available_scores
     )
 
     # Apply filters
@@ -1013,6 +1072,8 @@ if st.session_state.results_df is not None:
         filtered_df = filtered_df[filtered_df["task_id"].isin(selected_tasks)]
     if selected_subjects:
         filtered_df = filtered_df[filtered_df["subject"].isin(selected_subjects)]
+    if selected_scores:
+        filtered_df = filtered_df[filtered_df["aggregated_score"].isin(selected_scores)]
 
     if filtered_df.empty:
         st.warning("No data matches the selected filters.")
@@ -1231,6 +1292,47 @@ if st.session_state.results_df is not None:
                         "No tasks flagged for human review based on current filters."
                     )
 
+                # --- Human Review Input ---
+                if not review_needed_df.empty:
+                    st.subheader("Human Review Input")
+                    selected_review_task = st.selectbox(
+                        "Select Task ID for Review:",
+                        review_needed_df["task_id"].unique(),
+                    )
+                    review_task_details = review_needed_df[
+                        review_needed_df["task_id"] == selected_review_task
+                    ].iloc[0]
+
+                    st.write("### Review Task Details")
+                    st.json(review_task_details.to_dict())
+
+                    corrected_scores = {}
+                    rubric_cols = [
+                        col
+                        for col in review_task_details.index
+                        if col.startswith("judge_rubric_") and col.endswith("_score")
+                    ]
+                    for rubric in rubric_cols:
+                        corrected_scores[rubric] = st.selectbox(
+                            f"Corrected Score for {rubric.replace('judge_rubric_', '').replace('_score', '').replace('_', ' ').title()}:",
+                            ["Yes", "Partial", "No", "N/A"],
+                            index=["Yes", "Partial", "No", "N/A"].index(
+                                review_task_details[rubric]
+                            ),
+                        )
+
+                    review_comments = st.text_area("Review Comments:")
+
+                    if st.button("Save Human Review"):
+                        review_task_details["human_corrected_scores"] = corrected_scores
+                        review_task_details["human_review_comments"] = review_comments
+                        review_task_details["human_review_status"] = "Reviewed"
+                        review_task_details["human_review_timestamp"] = (
+                            datetime.utcnow().isoformat() + "Z"
+                        )
+                        st.success("Human review saved successfully.")
+                        # Here you would typically save these details back to your data storage
+
             else:
                 st.warning(
                     f"Could not generate Human Review Status chart/explorer. Required columns ('model_id', '{review_status_col}') not found."
@@ -1242,7 +1344,14 @@ if st.session_state.results_df is not None:
             )
 
         # --- Task-Level Explorer (Should be outside the rubric/review if/else, but inside the main results display else) ---
-        st.subheader("Task-Level Explorer")
+        st.subheader("Detailed Task-Level Explorer")
+        selected_task = st.selectbox(
+            "Select Task ID for Detailed View:", filtered_df["task_id"].unique()
+        )
+        task_details = (
+            filtered_df[filtered_df["task_id"] == selected_task].iloc[0].to_dict()
+        )
+        st.json(task_details)
         display_cols = {
             "task_id": "Task ID",
             "model_id": "Model",

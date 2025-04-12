@@ -205,12 +205,13 @@ def verify_final_answer(
 
 def aggregate_scores(
     parsed_evaluation_content: Dict[str, Dict[str, str]],
+    config: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    Aggregates parsed rubric scores and flags potential issues for review.
+    Aggregates parsed rubric scores and flags potential issues for review based on configurable rules.
 
     This function takes the structured evaluation content (parsed from the judge
-    LLM's response) and performs the following:
+    LLM's response) and aggregation settings from the configuration file, performing the following:
     1.  Iterates through each criterion and its score/justification.
     2.  Checks for missing scores, flagging for review if found.
     3.  Checks if justifications for "No" or "Partial" scores are potentially
@@ -240,8 +241,11 @@ def aggregate_scores(
             might be needed.
     """
     # Initialize results structure
+    aggregation_rules = config.get("aggregation_settings", {}).get("aggregation_rules", {})
+    consistency_checks = config.get("aggregation_settings", {}).get("consistency_checks", {})
+
     results: Dict[str, Any] = {
-        "aggregated_score": None,  # Will be "Pass", "Fail", or "Partial"
+        "aggregated_score": None,
         "needs_human_review": False,
         "review_reasons": [],
     }
@@ -282,18 +286,20 @@ def aggregate_scores(
         # Consistency Check: Trivial Justification for Non-"Yes" scores
         # --- Consistency Check: Trivial Justification ---
         # Flag if a 'No' or 'Partial' score has a very short justification.
-        if (
-            score_norm in ["no", "partial"]
-            and len(justification.strip()) <= MIN_JUSTIFICATION_LENGTH
-        ):
-            logger.warning(
-                "Potential trivial justification found for criterion '%s' (Score: %s, Length: %d)",
-                criterion,
-                score_raw,
-                len(justification.strip()),
-            )
-            trivial_justification_criteria.append(criterion)
-            results["needs_human_review"] = True
+        if consistency_checks.get("enable_trivial_justification_check", True):
+            trivial_length_threshold = consistency_checks.get("trivial_justification_length_threshold", MIN_JUSTIFICATION_LENGTH)
+            if (
+                score_norm in ["no", "partial"]
+                and len(justification.strip()) <= trivial_length_threshold
+            ):
+                logger.warning(
+                    "Potential trivial justification found for criterion '%s' (Score: %s, Length: %d)",
+                    criterion,
+                    score_raw,
+                    len(justification.strip()),
+                )
+                trivial_justification_criteria.append(criterion)
+                results["needs_human_review"] = True
 
     if not scores_found:
         msg = "Aggregation failed: No valid scores were processed from the evaluation content."
@@ -314,27 +320,21 @@ def aggregate_scores(
     # --- Determine Aggregated Score ---
     # Logic: Fail if any 'no', Partial if any 'partial' (and no 'no'), Pass if all 'yes'.
     final_score: AggregatedScore
-    if "no" in scores_found:
+    if aggregation_rules.get("fail_if_any_no", True) and "no" in scores_found:
         final_score = "Fail"
-    elif "partial" in scores_found:
+    elif aggregation_rules.get("partial_if_any_partial", True) and "partial" in scores_found:
         final_score = "Partial"
-        # Optional: Automatically flag all partial scores for review
-        # if "Partial score requires review" not in results["review_reasons"]:
-        #     results["review_reasons"].append("Partial score requires review.")
-        #     results["needs_human_review"] = True
-    elif all(s == "yes" for s in scores_found):
+    elif aggregation_rules.get("pass_if_all_yes", True) and all(s == "yes" for s in scores_found):
         final_score = "Pass"
     else:
-        # This case should ideally not be reached if parser enforces allowed scores
-        # and missing scores are treated as 'fail'. Log as an error.
         msg = f"Inconclusive aggregation state. Scores found: {scores_found}. Defaulting to Fail."
         logger.error(msg)
         results["review_reasons"].append(msg)
         results["needs_human_review"] = True
-        final_score = "Fail"  # Default to Fail in unexpected cases
+        final_score = "Fail"
 
     results["aggregated_score"] = final_score
-    logger.debug("Score aggregation complete. Result: %s", final_score)
+    logger.debug("Score aggregation complete using configurable rules. Result: %s", final_score)
 
     return results
 
@@ -343,6 +343,7 @@ def perform_postprocessing(
     parsed_judge_response: Dict[str, Any],
     extracted_final_answer: Optional[str],
     correct_final_answer: Optional[str],
+    config: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
     Orchestrates all post-processing steps for a single evaluation.
@@ -441,7 +442,7 @@ def perform_postprocessing(
     )
 
     if isinstance(evaluation_content, dict):
-        aggregation_results: Dict[str, Any] = aggregate_scores(evaluation_content)
+        aggregation_results: Dict[str, Any] = aggregate_scores(evaluation_content, config)
         postprocessing_results["aggregated_score"] = aggregation_results.get(
             "aggregated_score"
         )
