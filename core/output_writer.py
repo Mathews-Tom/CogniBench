@@ -43,6 +43,8 @@ def save_evaluation_result(
     model_id: Optional[str] = None,
     output_jsonl_path: Optional[Path] = None,
     parsing_error: Optional[str] = None,
+    structured_model_response: Optional[Dict[str, Any]] = None,
+    structured_ideal_response: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Union[str, None]]:  # Return type indicates status and maybe message/id
     """Appends a structured evaluation result record to a JSONL file.
 
@@ -111,6 +113,8 @@ def save_evaluation_result(
             "verification_message": verification_message,  # Added field
             "needs_human_review": needs_human_review,
             "review_reasons": review_reasons or [],  # Ensure list, even if None
+            "structured_model_response": structured_model_response,
+            "structured_ideal_response": structured_ideal_response,
             "parsing_error": parsing_error,  # Include parsing error if present
             # --- Human Review Fields (Initialized) ---
             "human_review_status": "Needs Review"
