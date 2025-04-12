@@ -168,11 +168,15 @@ def parse_judge_response(
         parsed_data: Any = json.loads(json_string)
         logger.debug("Successfully parsed JSON block.")
     except json.JSONDecodeError as e:
-        error_msg = f"Invalid JSON format in extracted block: {e}"
-        logger.warning(error_msg, exc_info=False)  # Log basic error
-        # Optionally log the problematic JSON string for debugging (can be verbose)
-        # logger.debug("Problematic JSON string:\n---\n%s\n---", json_string)
-        return {"error": error_msg}
+        logger.warning("Standard JSON parsing failed, attempting tolerant parsing with json5: %s", e)
+        try:
+            import json5
+            parsed_data = json5.loads(json_string)
+            logger.debug("Successfully parsed JSON block using json5.")
+        except Exception as json5_e:
+            error_msg = f"Invalid JSON format even with tolerant parsing: {json5_e}"
+            logger.error(error_msg)
+            return {"error": error_msg}
     except Exception as e:  # Catch other unexpected errors during parsing
         error_msg = f"Unexpected error during JSON parsing: {e}"
         logger.error(error_msg, exc_info=True)

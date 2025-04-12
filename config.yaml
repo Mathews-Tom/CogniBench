@@ -22,6 +22,13 @@ input_options:
   # to the dynamically generated ingested file.
   data_file: "data/default_ingested_data.json" # Example default path
 
+# --- Structuring Settings ---
+structuring_settings:
+  # Specifies the model to be used for structuring responses.
+  structuring_model: gpt-4o
+  # Path to the text file containing the prompt template used for structuring.
+  prompt_template: "prompts/structuring/Math-L1-structuring-v1.0.txt"
+
 # --- Evaluation Settings ---
 # Configures the LLM-as-a-judge process.
 evaluation_settings:
@@ -43,6 +50,23 @@ evaluation_settings:
     - "Yes"
     - "No"
     - "Partial"
+
+# --- Human Review Configuration ---
+human_review_settings:
+  flag_rules:
+    flag_on_partial_score: true
+    flag_on_trivial_justification: true
+    flag_on_verification_failure: true
+
+# --- Aggregation & Consistency Check Configuration ---
+aggregation_settings:
+  aggregation_rules:
+    fail_if_any_no: true
+    partial_if_any_partial: true
+    pass_if_all_yes: true
+  consistency_checks:
+    enable_trivial_justification_check: true
+    trivial_justification_length_threshold: 10
 
 # --- Output Configuration ---
 # Defines where the evaluation results should be saved.
