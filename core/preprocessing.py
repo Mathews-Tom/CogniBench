@@ -18,6 +18,27 @@ from typing import List, Optional, Pattern
 # Setup logger for this module
 logger = logging.getLogger(__name__)
 
+def safe_json_parse(json_string: str) -> Optional[dict]:
+    """
+    Safely parse a JSON string, handling empty or malformed inputs gracefully.
+
+    Args:
+        json_string (str): The JSON string to parse.
+
+    Returns:
+        Optional[dict]: Parsed JSON object if successful, None otherwise.
+    """
+    try:
+        if not json_string.strip():
+            raise ValueError("Empty JSON string")
+        return json.loads(json_string)
+    except json.JSONDecodeError as e:
+        logger.warning(f"JSON parsing failed: {e.msg} at line {e.lineno} column {e.colno}")
+        return None
+    except ValueError as e:
+        logger.warning(f"JSON parsing failed: {str(e)}")
+        return None
+
 # --- Constants ---
 # Regular expression patterns to identify potential final answer sections in text.
 # These are basic heuristics and may require refinement for different model output styles.
@@ -55,14 +76,12 @@ def extract_structured_response(response_text: str) -> Optional[str]:
     Returns:
         The extracted final answer if JSON parsing is successful, otherwise None.
     """
-    try:
-        structured_data = json.loads(response_text)
+    structured_data = safe_json_parse(response_text)
+    if structured_data:
         final_answer = structured_data.get("final_answer", None)
         if final_answer:
             logger.info("Successfully extracted final answer from structured JSON.")
             return final_answer.strip()
-    except json.JSONDecodeError as e:
-        logger.warning("JSON parsing failed: %s", e)
     return None
 
 
