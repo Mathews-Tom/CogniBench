@@ -35,6 +35,9 @@ graph LR
     B --> C["Evaluation Core (LLM Judge)"];
     C --> D[Post-processing & Aggregation];
     D --> E[Output Generation];
+    D --> LOG["Enhanced Logging"];
+    B --> JSON["Robust JSON Parsing"];
+    D --> SYMPY["Improved SymPy Parsing"];
 
     %% Data Storage & Logging
     F["Data Storage (.json, .jsonl)"] <--> A;
@@ -71,7 +74,9 @@ graph LR
 
     %% Styling
     style F fill:#9575cd,stroke:#333,stroke-width:2px
-    style LOG fill:#b0bec5,stroke:#333,stroke-width:1px
+    style LOG fill:#b0bec5,stroke:#333,stroke-width:2px
+    style JSON fill:#ffab91,stroke:#333,stroke-width:2px
+    style SYMPY fill:#90caf9,stroke:#333,stroke-width:2px
     style C fill:#64b5f6,stroke:#333,stroke-width:2px
     style H fill:#4db6ac,stroke:#333,stroke-width:1px,stroke-dasharray: 5 5
     style G fill:#ffca28,stroke:#333,stroke-width:2px
@@ -147,7 +152,6 @@ sequenceDiagram
     UI->>UI: Process data (Pandas)
     UI->>UI: Generate Graphs (Plotly) & Tables using COLOR_MAP
     UI-->>-User: Display Results & Visualizations
-
 ```
 
 ## 5. Component Breakdown
