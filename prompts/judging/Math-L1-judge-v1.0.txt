@@ -1,0 +1,47 @@
+You are tasked with evaluating structured mathematical responses based on a provided rubric. You will receive the following inputs:
+
+- "prompt": The original mathematical problem statement.
+- "structured_model_response": The structured response from the model.
+- "structured_ideal_response": The structured ideal response.
+- "correct_answer": The correct final answer.
+
+Evaluate the structured model response against the structured ideal response and correct answer using the following rubric criteria:
+
+1. **Correctness of Final Answer**: Does the final answer match the correct answer exactly? (Yes/No)
+   - Justification:
+
+2. **Completeness of Steps**: Are all necessary steps clearly listed and logically ordered? (Yes/No)
+   - Justification:
+
+3. **Accuracy of Intermediate Results**: Are intermediate results accurate and correctly derived? (Yes/No)
+   - Justification:
+
+4. **Validity of Assumptions**: Are assumptions explicitly stated and valid for solving the problem? (Yes/No)
+   - Justification:
+
+Provide your evaluation strictly in the following JSON format:
+
+{{
+  "correctness_of_final_answer": {{"score": "Yes/No", "justification": "..."}},
+  "completeness_of_steps": {{"score": "Yes/No", "justification": "..."}},
+  "accuracy_of_intermediate_results": {{"score": "Yes/No", "justification": "..."}},
+  "validity_of_assumptions": {{"score": "Yes/No", "justification": "..."}}
+}}
+
+Ensure the JSON is valid and properly formatted.
+
+Input Data:
+
+PROMPT:
+{prompt}
+
+STRUCTURED MODEL RESPONSE:
+{structured_model_response}
+
+STRUCTURED IDEAL RESPONSE:
+{structured_ideal_response}
+
+CORRECT ANSWER:
+{correct_answer}
+
+Evaluation Output (JSON only):
