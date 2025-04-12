@@ -1,4 +1,4 @@
-# CogniBench ⚖️
+# ⚖️ CogniBench 🔍
 
 CogniBench is a framework designed for evaluating Large Language Models (LLMs) using an LLM-as-a-Judge approach, with a specific focus on advanced Mathematics and Science, Technology, and Engineering (STE) domains.
 
@@ -28,6 +28,11 @@ Evaluating LLMs on complex reasoning tasks, especially in specialized fields lik
   * Mathematical equivalence checking using `sympy` (if installed) for accurate verification of math/symbolic answers, with fallback to string comparison.
   * Recommended temperature setting for evaluations is `0.0` to ensure deterministic, consistent, and reproducible outputs.
 * **Improved Error Handling:** Response parser reports all validation errors found, not just the first.
+
+* **Recent Enhancements:**
+  * **Robust JSON Parsing:** Implemented `safe_json_parse` to gracefully handle empty or malformed JSON inputs, significantly reducing parsing errors.
+  * **Improved SymPy Parsing:** Added `safe_sympy_parse` for robust mathematical expression parsing, gracefully handling parsing failures and falling back to string comparison.
+  * **Enhanced Logging:** Improved logging clarity and consistency, explicitly setting logging levels for file and console handlers to facilitate easier debugging and monitoring.
 * **Data Management:** Structured way to handle prompts, ideal responses, model responses, and evaluation results. Output files are organized into timestamped subdirectories for each batch run.
 * **Batch Processing:** Includes scripts for ingesting raw data and running evaluations on entire batches.
 * **Combined Results:** Generates a final JSON file grouping results by task for easier comparison across models.
@@ -37,7 +42,7 @@ Evaluating LLMs on complex reasoning tasks, especially in specialized fields lik
 
 ## Project Structure
 
-```
+```plaintext
 CogniBench/
 ├── api/                  # FastAPI application for serving the evaluation workflow
 ├── core/                 # Core logic for the evaluation workflow

@@ -41,6 +41,30 @@ except ImportError:
         "SymPy library not found. Mathematical answer verification will fall back "
         "to basic string comparison. Install sympy (`pip install sympy`) for enhanced checking."
     )
+def safe_sympy_parse(expr_str: str) -> Optional[Basic]:
+    """
+    Safely parse a mathematical expression string using SymPy, handling empty or malformed inputs gracefully.
+
+    Args:
+        expr_str (str): The mathematical expression string to parse.
+
+    Returns:
+        Optional[Basic]: Parsed SymPy expression if successful, None otherwise.
+    """
+    if not expr_str.strip():
+        logger.warning("SymPy parsing failed: Empty expression string.")
+        return None
+    try:
+        expr = sympify(expr_str.replace("^", "**"))
+        return expr
+    except (SympifyError, TypeError, SyntaxError):
+        try:
+            expr = parse_latex(expr_str)
+            return expr
+        except Exception as e:
+            logger.warning(f"SymPy parsing failed: {str(e)}")
+            return None
+
 
 
 # Type alias for aggregated score outcomes
@@ -120,39 +144,16 @@ def verify_final_answer(
     comparison_method = "String"  # Default method
 
     if SYMPY_AVAILABLE:
-        try:
-            # Try parsing both expressions (standard SymPy first, then LaTeX)
-            expr1: Optional[Basic] = None
-            expr2: Optional[Basic] = None
+        expr1 = safe_sympy_parse(norm_extracted)
+        expr2 = safe_sympy_parse(norm_correct)
 
-            try:
-                # Replace common textual representations before parsing
-                parsed_norm_extracted = norm_extracted.replace("^", "**")
-                expr1 = sympify(parsed_norm_extracted)
-            except (SympifyError, TypeError, SyntaxError):
-                try:
-                    expr1 = parse_latex(norm_extracted)
-                except Exception:  # Catch potential LaTeX parsing errors
-                    logger.debug(
-                        "SymPy could not parse extracted answer: %s", norm_extracted
-                    )
-                    raise ValueError("Failed to parse extracted answer with SymPy")
+        if expr1 is None or expr2 is None:
+            logger.warning("Failed to parse one or both answers with SymPy. Falling back to string comparison.")
+            match = None
+            comparison_method = "String"
 
-            try:
-                # Replace common textual representations before parsing
-                parsed_norm_correct = norm_correct.replace("^", "**")
-                expr2 = sympify(parsed_norm_correct)
-            except (SympifyError, TypeError, SyntaxError):
-                try:
-                    expr2 = parse_latex(norm_correct)
-                except Exception:
-                    logger.debug(
-                        "SymPy could not parse correct answer: %s", norm_correct
-                    )
-                    raise ValueError("Failed to parse correct answer with SymPy")
-
-            # If both parsed successfully, compare them
-            if expr1 is not None and expr2 is not None:
+        # If both parsed successfully, compare them
+        if expr1 is not None and expr2 is not None:
                 comparison_method = "SymPy"
                 # Use simplify and equals for robust comparison
                 try:
@@ -172,14 +173,7 @@ def verify_final_answer(
                     match = None
                     comparison_method = "String"  # Revert method
 
-        except Exception as e:  # Catch errors during parsing attempts
-            logger.warning(
-                "SymPy parsing failed (%s). Falling back to string comparison for '%s' vs '%s'.",
-                e,
-                norm_extracted,
-                norm_correct,
-            )
-            match = None  # Ensure match is None if SymPy fails
+        match = None  # Ensure match is None if SymPy fails
 
     # --- Fallback to String Comparison ---
     if match is None:  # If SymPy wasn't used, failed, or comparison errored

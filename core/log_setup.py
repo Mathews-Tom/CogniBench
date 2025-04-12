@@ -27,6 +27,7 @@ def setup_logging(log_level=logging.INFO):
         log_file_path, encoding="utf-8"
     )  # Use dynamic path
     file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.INFO)  # Explicitly set file handler level
 
     # Create stream handler (for console output)
     stream_handler = logging.StreamHandler(sys.stdout)
