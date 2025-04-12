@@ -272,24 +272,157 @@ st.markdown(f"""
 
 # Separator moved outside the expander, before the next section
 st.markdown("---")
+
+
+# --- Function to load and process results ---
+@st.cache_data(show_spinner=False)  # Re-enable cache
+def load_and_process_results(results_paths):
+    """Loads data from _final_results.json files and processes into a DataFrame."""
+    all_results_data = []
+    for relative_path in results_paths:
+        try:
+            file_path = COGNIBENCH_ROOT / relative_path
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                task_count = 0
+                for task in data:
+                    task_count += 1
+                    task_id = task.get("task_id")
+                    prompt = task.get("prompt")
+                    ideal_response = task.get("ideal_response")
+                    final_answer_gt = task.get("final_answer")
+                    metadata = task.get("metadata", {})
+                    subject = metadata.get("subject", "N/A")
+                    complexity = metadata.get("complexity", "N/A")
+
+                    eval_count = 0
+                    for evaluation in task.get("evaluations", []):
+                        eval_count += 1
+                        model_id = evaluation.get("model_id")
+                        model_response = evaluation.get("model_response")
+                        human_eval = evaluation.get("human_evaluation", {})
+                        judge_eval = evaluation.get("judge_evaluation", {})
+
+                        flat_judge_eval = {}
+                        if isinstance(judge_eval, dict):
+                            for key, value in judge_eval.items():
+                                if isinstance(value, dict):
+                                    if key == "parsed_rubric_scores":
+                                        for (
+                                            rubric_name,
+                                            rubric_details,
+                                        ) in value.items():
+                                            if isinstance(rubric_details, dict):
+                                                flat_judge_eval[
+                                                    f"judge_rubric_{rubric_name}_score"
+                                                ] = rubric_details.get("score")
+                                                flat_judge_eval[
+                                                    f"judge_rubric_{rubric_name}_justification"
+                                                ] = rubric_details.get("justification")
+                                            else:
+                                                flat_judge_eval[
+                                                    f"judge_rubric_{rubric_name}"
+                                                ] = rubric_details
+                                    else:
+                                        for sub_key, sub_value in value.items():
+                                            flat_judge_eval[
+                                                f"judge_{key}_{sub_key}"
+                                            ] = sub_value
+                                else:
+                                    flat_judge_eval[f"judge_{key}"] = value
+                        else:
+                            flat_judge_eval["judge_evaluation_raw"] = judge_eval
+
+                        aggregated_score = str(
+                            flat_judge_eval.get("judge_aggregated_score", "N/A")
+                        ).title()
+
+                        all_results_data.append(
+                            {
+                                "task_id": task_id,
+                                "model_id": model_id,
+                                "subject": subject,
+                                "complexity": complexity,
+                                "aggregated_score": aggregated_score,
+                                "prompt": prompt,
+                                "ideal_response": ideal_response,
+                                "model_response": model_response,
+                                "final_answer_ground_truth": final_answer_gt,
+                                **flat_judge_eval,
+                                "human_preference": human_eval.get("preference"),
+                                "human_rating": human_eval.get("rating"),
+                            }
+                        )
+        except FileNotFoundError:
+            st.error(f"Results file not found: {relative_path}")
+            return None
+        except json.JSONDecodeError:
+            st.error(f"Error decoding JSON from file: {relative_path}")
+            return None
+        except Exception as e:
+            st.error(f"Error processing file {relative_path}: {e}")
+
+    return pd.DataFrame(all_results_data)
+
+
 # Removed duplicate/erroneous lines
 
-# --- Phase 2: Run Evaluation ---
-st.header("3. Run Evaluations")  # Renamed header
+action = st.radio(
+    "Select Action",
+    ["Run Evaluations", "Recreate Graphs from Existing Data"],
+    horizontal=True
+)
 
-col1, col2 = st.columns(2)
+if action == "Run Evaluations":
+    st.header("Run Evaluations")
+elif action == "Recreate Graphs from Existing Data":
+    st.header("Recreate Graphs from Existing Data")
 
-with col1:
-    run_button = st.button(
-        "🚀 Run Evaluations",  # Renamed button text
-        type="primary",
-        disabled=not uploaded_files
-        or not st.session_state.selected_template_name
-        or st.session_state.get("evaluation_running", False),
+if action == "Run Evaluations":
+    col1, col2 = st.columns(2)
+
+    with col1:
+        run_button = st.button(
+            "🚀 Run Evaluations",
+            type="primary",
+            disabled=not uploaded_files
+            or not st.session_state.selected_template_name
+            or st.session_state.get("evaluation_running", False),
+        )
+
+    with col2:
+        clear_cache_button = st.button("🧹 Clear LLM Cache")
+
+elif action == "Recreate Graphs from Existing Data":
+    data_dir = COGNIBENCH_ROOT / "data"
+    available_folders = sorted(
+        [f.name for f in data_dir.iterdir() if f.is_dir()],
+        key=lambda x: (data_dir / x).stat().st_mtime,
+        reverse=True
+    )
+    selected_folders = st.multiselect(
+        "Select folders to regenerate graphs from existing evaluation data:",
+        options=available_folders,
+        help="Select one or more folders containing existing evaluation data.",
     )
 
-with col2:
-    clear_cache_button = st.button("🧹 Clear LLM Cache")
+    if st.button("📊 Regenerate Graphs", disabled=not selected_folders):
+        evaluation_results_paths = []
+        for folder in selected_folders:
+            folder_path = data_dir / folder
+            batch_name = folder.split("_")[0]
+            results_file = folder_path / f"{batch_name}_final_results.json"
+            if results_file.exists():
+                evaluation_results_paths.append(str(results_file))
+            else:
+                st.warning(f"No final results file found in {folder}")
+
+        if evaluation_results_paths:
+            st.session_state.results_df = load_and_process_results(evaluation_results_paths)
+            st.success("Graphs regenerated successfully!")
+            st.rerun()
+        else:
+            st.error("No valid evaluation data found in selected folders.")
 
 
 # --- Config Validation Helper ---
@@ -402,7 +535,7 @@ def run_evaluation_script(input_file_path, config_file_path, output_queue, stop_
 
 
 # --- Run Evaluation Logic ---
-if run_button and uploaded_files and st.session_state.selected_template_name:
+if action == "Run Evaluations" and run_button and uploaded_files and st.session_state.selected_template_name:
     st.session_state.evaluation_running = True
     st.session_state.previous_evaluation_running = False  # Reset previous state tracker
     st.session_state.last_run_output = []
@@ -696,7 +829,7 @@ if not st.session_state.get("evaluation_running", False) and st.session_state.ge
         )  # Show last 1000 lines
 
 # --- Clear Cache Logic ---
-if clear_cache_button:
+if action == "Run Evaluations" and clear_cache_button:
     # Define potential cache file paths relative to CogniBench root
     cache_files_to_clear = [
         COGNIBENCH_ROOT / "openai_cache.db",
