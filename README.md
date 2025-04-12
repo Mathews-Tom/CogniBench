@@ -33,6 +33,10 @@ Evaluating LLMs on complex reasoning tasks, especially in specialized fields lik
   * **Robust JSON Parsing:** Implemented `safe_json_parse` to gracefully handle empty or malformed JSON inputs, significantly reducing parsing errors.
   * **Improved SymPy Parsing:** Added `safe_sympy_parse` for robust mathematical expression parsing, gracefully handling parsing failures and falling back to string comparison.
   * **Enhanced Logging:** Improved logging clarity and consistency, explicitly setting logging levels for file and console handlers to facilitate easier debugging and monitoring.
+  
+  * **Graph Regeneration from Existing Data:** Added functionality in the Streamlit UI to regenerate evaluation graphs directly from existing evaluation data without re-running evaluations. Users can select one or more folders containing previous evaluation results (`<BatchName>_final_results.json`) to quickly visualize past results.
+  * **Mutually Exclusive Actions:** Implemented a clear UI distinction between "Run Evaluations" and "Recreate Graphs from Existing Data" using a radio button selection. This ensures users explicitly choose one action at a time, preventing confusion and unintended operations.
+  * **Folder Sorting by Modification Time:** Enhanced folder selection by sorting available folders based on their modification time, displaying the most recently modified folders at the top for improved usability.
 * **Data Management:** Structured way to handle prompts, ideal responses, model responses, and evaluation results. Output files are organized into timestamped subdirectories for each batch run.
 * **Batch Processing:** Includes scripts for ingesting raw data and running evaluations on entire batches.
 * **Combined Results:** Generates a final JSON file grouping results by task for easier comparison across models.
