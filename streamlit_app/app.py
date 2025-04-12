@@ -138,26 +138,6 @@ with col_judging:
         key="judging_api_key_input",
     )
 
-# Validation logic for configuration completeness
-config_complete = all(
-    [
-        st.session_state.get("structuring_provider_select"),
-        st.session_state.get("structuring_model_select"),
-        st.session_state.get("judging_provider_select"),
-        st.session_state.get("judging_model_select"),
-        st.session_state.get("structuring_template_select"),
-        st.session_state.get("judging_template_select"),
-    ]
-)
-
-if config_complete:
-    st.success("✅ Configuration is complete.")
-else:
-    st.error("❌ Configuration is incomplete. Please ensure all fields are selected.")
-
-# Define available models based on the plan
-# Use requested provider names as keys
-
 # Define available prompt templates for structuring and judging separately
 STRUCTURING_TEMPLATES_DIR = PROMPT_TEMPLATES_DIR_ABS / "structuring"
 JUDGING_TEMPLATES_DIR = PROMPT_TEMPLATES_DIR_ABS / "judging"
@@ -176,20 +156,35 @@ def get_templates(directory):
 AVAILABLE_STRUCTURING_TEMPLATES = get_templates(STRUCTURING_TEMPLATES_DIR)
 AVAILABLE_JUDGING_TEMPLATES = get_templates(JUDGING_TEMPLATES_DIR)
 
+# Use requested provider names as keys
+# Use requested provider names as keys
+
 
 # Explicitly initialize session state variables for default selections
 if "structuring_provider_select" not in st.session_state:
     st.session_state["structuring_provider_select"] = list(AVAILABLE_MODELS.keys())[0]
 if "structuring_model_select" not in st.session_state:
-    st.session_state["structuring_model_select"] = list(AVAILABLE_MODELS[st.session_state["structuring_provider_select"]].keys())[0]
+    st.session_state["structuring_model_select"] = list(
+        AVAILABLE_MODELS[st.session_state["structuring_provider_select"]].keys()
+    )[0]
 if "judging_provider_select" not in st.session_state:
     st.session_state["judging_provider_select"] = list(AVAILABLE_MODELS.keys())[0]
 if "judging_model_select" not in st.session_state:
-    st.session_state["judging_model_select"] = list(AVAILABLE_MODELS[st.session_state["judging_provider_select"]].keys())[0]
+    st.session_state["judging_model_select"] = list(
+        AVAILABLE_MODELS[st.session_state["judging_provider_select"]].keys()
+    )[0]
 if "structuring_template_select" not in st.session_state:
-    st.session_state["structuring_template_select"] = list(AVAILABLE_STRUCTURING_TEMPLATES.keys())[0] if AVAILABLE_STRUCTURING_TEMPLATES else None
+    st.session_state["structuring_template_select"] = (
+        list(AVAILABLE_STRUCTURING_TEMPLATES.keys())[0]
+        if AVAILABLE_STRUCTURING_TEMPLATES
+        else None
+    )
 if "judging_template_select" not in st.session_state:
-    st.session_state["judging_template_select"] = list(AVAILABLE_JUDGING_TEMPLATES.keys())[0] if AVAILABLE_JUDGING_TEMPLATES else None
+    st.session_state["judging_template_select"] = (
+        list(AVAILABLE_JUDGING_TEMPLATES.keys())[0]
+        if AVAILABLE_JUDGING_TEMPLATES
+        else None
+    )
 
 # Initialize session state
 if "selected_provider" not in st.session_state:
@@ -278,9 +273,28 @@ if st.session_state.get("show_config", False):
     with st.expander("Config.yaml", expanded=True):
         config_content = BASE_CONFIG_PATH.read_text()
         st.code(config_content, language="yaml")
+# --- Config Completeness Check (Moved After All Widgets) ---
+# Validation logic for configuration completeness
+config_complete = all(
+    [
+        st.session_state.get("structuring_provider_select"),
+        st.session_state.get("structuring_model_select"),
+        st.session_state.get("judging_provider_select"),
+        st.session_state.get("judging_model_select"),
+        st.session_state.get("structuring_template_select"),
+        st.session_state.get("judging_template_select"),
+    ]
+)
+
+if config_complete:
+    st.success("✅ Configuration is complete.")
+else:
+    st.error("❌ Configuration is incomplete. Please ensure all fields are selected.")
 
 st.markdown("---")
+AVAILABLE_JUDGING_TEMPLATES = get_templates(JUDGING_TEMPLATES_DIR)
 
+# --- Config Completeness Check (Moved After All Widgets) ---
 # --- Display Current Configuration Summary (Moved Outside Expander) ---
 st.subheader("Current Configuration Summary")
 
@@ -313,12 +327,12 @@ st.markdown("---")
 
 # --- Function to load and process results ---
 @st.cache_data(show_spinner=False)  # Re-enable cache
-def load_and_process_results(results_paths):
-    """Loads data from _final_results.json files and processes into a DataFrame."""
+def load_and_process_results(absolute_results_paths):
+    """Loads data from _final_results.json files (given absolute paths) and processes into a DataFrame."""
     all_results_data = []
-    for relative_path in results_paths:
+    for file_path_str in absolute_results_paths:
         try:
-            file_path = COGNIBENCH_ROOT / relative_path
+            file_path = Path(file_path_str) # Convert string path to Path object
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 task_count = 0
@@ -391,13 +405,13 @@ def load_and_process_results(results_paths):
                             }
                         )
         except FileNotFoundError:
-            st.error(f"Results file not found: {relative_path}")
+            st.error(f"Results file not found: {file_path_str}")
             return None
         except json.JSONDecodeError:
-            st.error(f"Error decoding JSON from file: {relative_path}")
+            st.error(f"Error decoding JSON from file: {file_path_str}")
             return None
         except Exception as e:
-            st.error(f"Error processing file {relative_path}: {e}")
+            st.error(f"Error processing file {file_path_str}: {e}")
 
     return pd.DataFrame(all_results_data)
 
@@ -462,6 +476,7 @@ elif action == "Recreate Graphs from Existing Data":
                 st.warning(f"No final results file found in {folder}")
 
         if evaluation_results_paths:
+            # Pass the absolute paths directly
             st.session_state.results_df = load_and_process_results(
                 evaluation_results_paths
             )
@@ -589,9 +604,14 @@ if (
 ):
     st.session_state.evaluation_running = True
     st.session_state.previous_evaluation_running = False  # Reset previous state tracker
+    # Clear previous results and logs when starting a new run
     st.session_state.last_run_output = []
     st.session_state.evaluation_results_paths = []
     st.session_state.results_df = None
+    st.session_state.eval_duration_str = None  # Clear duration string
+    st.info(
+        "Starting new evaluation run... Previous results cleared."
+    )  # Optional user feedback
     st.session_state.eval_start_time = time.time()
     st.session_state.eval_duration_str = None
     st.session_state.current_file_index = 0
@@ -803,43 +823,97 @@ if st.session_state.get("evaluation_running", False):
                 st.session_state.temp_dir_obj.cleanup()
                 st.session_state.temp_dir_obj = None
                 st.session_state.temp_dir_path = None
-            # Calculate duration BEFORE cleaning up state
+            # --- Calculations and Summary on Completion ---
             end_time = time.time()
             duration_seconds = end_time - st.session_state.eval_start_time
+
+            # Load results first to get counts
+            results_df = None
+            if st.session_state.evaluation_results_paths:
+                # Pass absolute paths directly to the loading function
+                results_df = load_and_process_results(st.session_state.evaluation_results_paths)
+                st.session_state.results_df = (
+                    results_df  # Store loaded df in session state
+                )
+            else:
+                progress_area.warning(
+                    "Could not find paths to results files in the logs. Cannot calculate averages."
+                )
 
             # Format duration human-readably
             parts = []
             hours, rem = divmod(duration_seconds, 3600)
-            minutes, seconds = divmod(rem, 60)
+            minutes, seconds_rem = divmod(rem, 60)
             if hours >= 1:
                 parts.append(f"{int(hours)} hour{'s' if int(hours) != 1 else ''}")
             if minutes >= 1:
                 parts.append(f"{int(minutes)} minute{'s' if int(minutes) != 1 else ''}")
             if (
-                seconds >= 1 or not parts
+                seconds_rem >= 1 or not parts
             ):  # Show seconds if > 0 or if it's the only unit
-                parts.append(f"{int(seconds)} second{'s' if int(seconds) != 1 else ''}")
+                parts.append(
+                    f"{int(seconds_rem)} second{'s' if int(seconds_rem) != 1 else ''}"
+                )
             st.session_state.eval_duration_str = ", ".join(parts)
-            # Example: "1 hour, 5 minutes, 30 seconds" or "5 minutes, 30 seconds" or "30 seconds"
-            # Clean up state AFTER calculations but before final display update
+
+            # Count API calls from logs
+            structuring_calls = 0
+            judging_calls = 0
+            for log_line in st.session_state.last_run_output:
+                if "STRUCTURING_CALL:" in log_line:
+                    structuring_calls += 1
+                elif "JUDGING_CALL:" in log_line:
+                    judging_calls += 1
+
+            # Calculate averages
+            avg_time_per_task_str = "N/A"
+            avg_time_per_model_eval_str = "N/A"
+            num_unique_tasks = 0
+            num_evaluations = 0
+
+            if results_df is not None and not results_df.empty:
+                num_unique_tasks = results_df["task_id"].nunique()
+                num_evaluations = len(results_df)
+                if num_unique_tasks > 0:
+                    avg_time_per_task = duration_seconds / num_unique_tasks
+                    avg_time_per_task_str = f"{avg_time_per_task:.2f} seconds"
+                if num_evaluations > 0:
+                    avg_time_per_model_eval = duration_seconds / num_evaluations
+                    avg_time_per_model_eval_str = (
+                        f"{avg_time_per_model_eval:.2f} seconds"
+                    )
+
+            # Construct final summary message
+            summary_message = f"""
+            All evaluations complete!
+            - **Total Duration:** {st.session_state.eval_duration_str}
+            - **Structuring Calls:** {structuring_calls}
+            - **Judging Calls:** {judging_calls}
+            - **Total Tasks Processed:** {num_unique_tasks}
+            - **Total Model Evaluations:** {num_evaluations}
+            - **Avg. Time per Task:** {avg_time_per_task_str}
+            - **Avg. Time per Model Evaluation:** {avg_time_per_model_eval_str}
+            """
+
+            # Display final messages
+            progress_area.success("Evaluation Run Summary:")
+            progress_area.markdown(
+                summary_message
+            )  # Use markdown for better formatting
+
+            if st.session_state.evaluation_results_paths:
+                progress_area.write("Generated results files:")
+                for path in st.session_state.evaluation_results_paths:
+                    progress_area.code(path)
+            # else: # Warning moved earlier
+
+            # Clean up state AFTER calculations and display
             if "current_file_index" in st.session_state:
                 del st.session_state.current_file_index
             if "output_queue" in st.session_state:
                 del st.session_state.output_queue
             if "worker_thread" in st.session_state:
                 del st.session_state.worker_thread
-            # Display final messages
-            progress_area.success(
-                f"All evaluations complete! (Duration: {st.session_state.eval_duration_str})"
-            )
-            if st.session_state.evaluation_results_paths:
-                progress_area.write("Found results files:")
-                for path in st.session_state.evaluation_results_paths:
-                    progress_area.code(path)
-            else:
-                progress_area.warning(
-                    "Could not find paths to results files in the logs."
-                )
             st.rerun()  # Final rerun to trigger results loading/display
         else:
             # More files to process, trigger rerun to start next thread
