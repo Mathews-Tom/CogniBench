@@ -1,0 +1,19 @@
+You are tasked with converting an unstructured mathematical solution into a structured JSON format. Extract and organize the information into the following fields:
+
+- "assumptions": Clearly state any assumptions explicitly mentioned or implied in the solution.
+- "steps": List each step taken to solve the problem sequentially.
+- "intermediate_results": List any intermediate results or calculations explicitly mentioned.
+- "final_answer": Clearly state the final answer provided by the solution.
+- "format_notes": Include any notes about formatting or special considerations relevant to the solution.
+
+Output only the structured JSON object in the following format:
+
+{
+  "assumptions": "...",
+  "steps": ["Step 1: ...", "Step 2: ..."],
+  "intermediate_results": ["..."],
+  "final_answer": "...",
+  "format_notes": "..."
+}
+
+Ensure the JSON is valid and properly formatted.

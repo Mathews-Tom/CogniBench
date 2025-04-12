@@ -1,62 +1,37 @@
 # CogniBench - Single Evaluation Test Harness
-# Version: 0.1 (Phase 1)
+# Version: 0.2 (Phase 5 - Structured Input Support)
 
 import argparse
 import json
-import logging  # Import logging
+import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict  # Added imports
+from typing import Any, Dict
 
-# Assuming workflow and config loading utilities exist
 from core.workflow import run_evaluation_workflow
-from tqdm import tqdm  # Import tqdm
+from tqdm import tqdm
 
-# Assuming log_setup is in core directory relative to project root
 try:
     from core.log_setup import setup_logging
 except ImportError:
-    # Fallback if running script directly and core isn't in path easily
-    try:
-        # Adjust path based on expected execution context
-        sys.path.insert(0, str(Path(__file__).parent))
-        from core.log_setup import setup_logging
-    except ImportError:
-        # If setup still fails, provide a basic config
-        logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    sys.path.insert(0, str(Path(__file__).parent))
+    from core.log_setup import setup_logging
 
-        def setup_logging():
-            pass  # No-op function
-
-
-# Get logger for this module
 logger = logging.getLogger(__name__)
 
-# Configuration will be loaded from the config file passed via args
 
-
-# --- Main Execution Logic ---
 def load_config(config_path: Path):
-    """Loads configuration from a YAML file."""
-    # Basic placeholder - requires PyYAML (pip install pyyaml)
-    # Add error handling
     try:
         import yaml
 
         with config_path.open("r", encoding="utf-8") as f:
             return yaml.safe_load(f)
-    except ImportError:
-        logger.error(
-            "PyYAML is required to load config.yaml. Please install it (`uv pip install pyyaml`)."
-        )
-        sys.exit(1)
     except Exception as e:
         logger.error("Error loading config file %s", config_path, exc_info=True)
         sys.exit(1)
 
 
 def validate_config(config: Dict[str, Any]) -> bool:
-    """Performs basic validation on the loaded configuration dictionary."""
     required_sections = ["llm_client", "evaluation_settings"]
     for section in required_sections:
         if section not in config or not isinstance(config[section], dict):
@@ -64,46 +39,10 @@ def validate_config(config: Dict[str, Any]) -> bool:
                 "Config validation failed: Missing or invalid section '%s'.", section
             )
             return False
-
-    eval_settings = config["evaluation_settings"]
-    required_eval_keys = [
-        "judge_model",
-        "prompt_template",
-        "expected_criteria",
-        "allowed_scores",
-    ]
-    for key in required_eval_keys:
-        if key not in eval_settings:
-            logger.error(
-                "Config validation failed: Missing key '%s' in 'evaluation_settings'.",
-                key,
-            )
-            return False
-        # Specific type checks
-        if key in ["expected_criteria", "allowed_scores"] and not isinstance(
-            eval_settings[key], list
-        ):
-            logger.error(
-                "Config validation failed: Key '%s' in 'evaluation_settings' must be a list.",
-                key,
-            )
-            return False
-        elif key in ["judge_model", "prompt_template"] and not isinstance(
-            eval_settings[key], str
-        ):
-            logger.error(
-                "Config validation failed: Key '%s' in 'evaluation_settings' must be a string.",
-                key,
-            )
-            return False
-
-    # Could add more checks (e.g., non-empty lists/strings) if needed
-    logger.info("Configuration validation successful.")
     return True
 
 
 def main(args):
-    """Loads config, data, iterates through tasks/responses, and runs evaluation workflow."""
     config_path = Path(args.config)
     input_data_path = Path(args.input_data)
 
@@ -112,10 +51,6 @@ def main(args):
         sys.exit(1)
 
     config = load_config(config_path)
-    if not config:
-        sys.exit(1)  # Error handled in load_config
-
-    # --- Validate Configuration ---
     if not validate_config(config):
         sys.exit(1)
 
@@ -123,32 +58,26 @@ def main(args):
         with input_data_path.open("r", encoding="utf-8") as f:
             evaluation_tasks = json.load(f)
     except Exception as e:
-        logger.error(
-            "Error loading or parsing input data file %s",
-            input_data_path,
-            exc_info=True,
-        )
+        logger.error("Error loading input data file %s", input_data_path, exc_info=True)
         sys.exit(1)
 
     all_results = []
     overall_success = True
 
-    logger.debug("--- Starting Evaluation Run ---")  # Changed to debug
-    logger.debug("Config: %s", config_path)  # Changed to debug
-    logger.debug("Input Data: %s", input_data_path)  # Changed to debug
-
     total_tasks = len(evaluation_tasks)
     logger.info(f"Starting evaluation for {total_tasks} tasks.")
 
-    # Wrap the main loop with tqdm for progress bar, use enumerate for index
     for i, task in enumerate(
         tqdm(evaluation_tasks, desc="Evaluating Tasks", file=sys.stdout)
-    ):  # Direct tqdm to stdout
-        # Print progress update for Streamlit to capture
+    ):
         print(f"PROGRESS: Task {i + 1}/{total_tasks}", file=sys.stdout, flush=True)
         task_id = task.get("task_id", "unknown_task")
         prompt_text = task.get("prompt")
+        correct_answer = task.get("correct_answer", "")
+
         ideal_response_text = task.get("ideal_response")
+        structured_ideal_response = task.get("structured_ideal_response")
+
         model_responses = task.get("model_responses", [])
 
         if not prompt_text or not ideal_response_text:
@@ -157,14 +86,25 @@ def main(args):
             )
             continue
 
-        # Logging within the loop might be too verbose with tqdm, consider logging level adjustments
-        # logger.debug("--- Evaluating Task ID: %s ---", task_id)
-
         for model_response in model_responses:
             response_text = model_response.get("response_text")
+            structured_model_response = model_response.get("structured_model_response")
             model_id = model_response.get("model_id", "unknown_model")
 
-            if not response_text:
+            if (
+                args.use_structured
+                and structured_model_response
+                and structured_ideal_response
+            ):
+                response_input = structured_model_response
+                ideal_input = structured_ideal_response
+                structured = True
+            else:
+                response_input = response_text
+                ideal_input = ideal_response_text
+                structured = False
+
+            if not response_input:
                 logger.warning(
                     "Skipping response from model %s in task %s due to missing text.",
                     model_id,
@@ -172,37 +112,31 @@ def main(args):
                 )
                 continue
 
-            # logger.debug("  - Evaluating response from Model: %s", model_id)
-
-            # --- Call the workflow function ---
-            # Assumes run_evaluation_workflow is updated to accept text and config
             result = run_evaluation_workflow(
                 prompt=prompt_text,
-                response=response_text,
-                ideal_response=ideal_response_text,
-                config=config,  # Pass loaded config
-                task_id=task_id,  # Pass identifiers for context
+                response=response_input,
+                ideal_response=ideal_input,
+                correct_answer=correct_answer,
+                config=config,
+                task_id=task_id,
                 model_id=model_id,
+                structured=structured,
                 output_jsonl_path=Path(args.output_jsonl)
                 if args.output_jsonl
-                else None,  # Pass output path
+                else None,
             )
-            # --- End workflow call ---
 
-            # logger.debug("    Result Status: %s", result.get('status'))
             all_results.append(result)
 
             if result.get("status") != "success":
                 overall_success = False
                 logger.error(
-                    "    Workflow Error for task %s, model %s: %s",
+                    "Workflow Error for task %s, model %s: %s",
                     task_id,
                     model_id,
                     result.get("message"),
                 )
 
-    # --- Save overall results (optional) ---
-    # Example: save to a file specified in config or a default location
     results_output_path_str = config.get("output_options", {}).get(
         "results_file", "data/evaluation_results.json"
     )
@@ -211,24 +145,21 @@ def main(args):
     try:
         with results_output_path.open("w", encoding="utf-8") as f:
             json.dump(all_results, f, indent=2)
-        logger.debug(
-            "--- Overall results saved to: %s ---", results_output_path
-        )  # Changed to debug
+        logger.info("Overall results saved to: %s", results_output_path)
     except Exception as e:
         logger.error(
             "Error saving overall results to %s", results_output_path, exc_info=True
         )
 
     if not overall_success:
-        logger.error("--- Evaluation Run Completed with Errors ---")
-        sys.exit(1)  # Exit with error if any workflow failed
+        logger.error("Evaluation Run Completed with Errors")
+        sys.exit(1)
     else:
-        logger.info("--- Evaluation Run Completed Successfully ---")
+        logger.info("Evaluation Run Completed Successfully")
 
 
 if __name__ == "__main__":
-    setup_logging()  # Setup logging
-    logger.info("Starting CogniBench evaluation script.")
+    setup_logging()
     parser = argparse.ArgumentParser(
         description="Run CogniBench evaluation on ingested data."
     )
@@ -241,7 +172,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output-jsonl", help="Path to the output JSONL file for detailed results."
     )
-    # Add other potential arguments here
-
+    parser.add_argument(
+        "--use-structured",
+        action="store_true",
+        help="Use structured responses if available.",
+    )
     args = parser.parse_args()
     main(args)
