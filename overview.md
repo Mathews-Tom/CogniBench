@@ -277,3 +277,9 @@ sequenceDiagram
   * **Results Export:** Add functionality to export the filtered data from the explorers (Task-Level, Human Review) to CSV/Excel.
   * **Configuration Presets:** Allow saving and loading common LLM Judge configurations.
   * **Historical Run Comparison:** Develop features to load and compare results across different evaluation runs (multiple `_final_results.json` files).
+  
+  **Recent Enhancements (April 2025):**
+  
+  - **Graph Regeneration from Existing Data:** Added functionality to regenerate evaluation graphs directly from existing evaluation data without re-running evaluations. Users can select one or more folders containing previous evaluation results (`<BatchName>_final_results.json`) to quickly visualize past results.
+  - **Mutually Exclusive Actions:** Implemented a clear UI distinction between "Run Evaluations" and "Recreate Graphs from Existing Data" using a radio button selection. This ensures users explicitly choose one action at a time, preventing confusion and unintended operations.
+  - **Folder Sorting by Modification Time:** Enhanced folder selection by sorting available folders based on their modification time, displaying the most recently modified folders at the top for improved usability.
