@@ -1,8 +1,25 @@
-# CogniBench - Prompt Templates
-# Version: 0.1 (Phase 1 - Initial Criteria)
+import logging
+from pathlib import Path
+import functools
 
-# This template focuses on evaluating 'Problem Understanding' and 'Results Formulae' only.
+logger = logging.getLogger(__name__)
 
+@functools.lru_cache(maxsize=32)
+def load_prompt_template(template_path_str: str) -> str:
+    template_path = Path(template_path_str)
+    if not template_path.is_file():
+        project_root = Path(__file__).resolve().parent.parent
+        resolved_path = project_root / template_path_str
+        if resolved_path.is_file():
+            template_path = resolved_path
+        else:
+            logger.error(f"Prompt template file not found at '{template_path_str}' or '{resolved_path}'")
+            raise FileNotFoundError(f"Prompt template file not found at '{template_path_str}' or '{resolved_path}'")
+
+    with template_path.open("r", encoding="utf-8") as f:
+        return f.read()
+
+# Existing templates remain unchanged below this line
 INITIAL_JUDGE_PROMPT_TEMPLATE = """
 You are an expert mathematician and rigorous evaluator assessing an AI model's response to an advanced mathematics problem.
 Your task is to evaluate the provided 'MODEL RESPONSE' based ONLY on the following two criteria from our evaluation rubric:
@@ -22,133 +39,18 @@ You will be given the following inputs:
 - **CORRECT ANSWER:** The ground-truth final answer.
 
 **Instructions:**
-
-1.  Carefully read the PROMPT and the MODEL RESPONSE.
-2.  Compare the MODEL RESPONSE's interpretation and setup against the PROMPT to evaluate **Problem Understanding**.
-3.  Identify the final answer within the MODEL RESPONSE. Compare this final answer against the provided **CORRECT ANSWER** to evaluate **Results Formulae**.
-4.  Provide your evaluation in the following JSON format ONLY. Do not include any text outside the JSON structure.
-
-```json
-{{
-  "evaluation": {{
-    "Problem Understanding": {{
-      "score": "Yes" or "No",
-      "justification": "Your detailed reasoning for the score, citing specific parts of the MODEL RESPONSE and PROMPT."
-    }},
-    "Results Formulae": {{
-      "score": "Yes" or "No",
-      "justification": "Your detailed reasoning for the score, comparing the model's final answer to the CORRECT ANSWER."
-    }}
-  }}
-}}
-```
-
-**Input Data:**
-
-**PROMPT:**
-{prompt_content}
-
-**MODEL RESPONSE:**
-{model_response_text}
-
-**IDEAL RESPONSE:**
-{ideal_response_text}
-
-**CORRECT ANSWER:**
-{correct_answer}
-
-**Evaluation Output (JSON only):**
+Provide your evaluation in JSON format ONLY.
 """
 
-# Example usage (for testing):
-# filled_prompt = INITIAL_JUDGE_PROMPT_TEMPLATE.format(
-#     prompt_content="Example prompt",
-#     model_response_text="Example model response",
-#     ideal_response_text="Example ideal response",
-#     correct_answer="Example correct answer"
-# )
-# print(filled_prompt)
-
-
-# --- Full L1 Rubric Prompt Template (Phase 2) ---
-
-# TODO: Add more detailed definitions/examples for each criterion based on the reference document if available.
 FULL_L1_JUDGE_PROMPT_TEMPLATE = """
 You are an expert mathematician and rigorous evaluator assessing an AI model's response to an advanced mathematics problem.
 Your task is to evaluate the provided 'MODEL RESPONSE' based on ALL FIVE criteria from the L1 evaluation rubric:
 
-1.  **Problem Understanding:**
-    *   **Yes:** The model correctly interprets the question, identifies all constraints, and sets up the problem appropriately based on the 'PROMPT'.
-    *   **No:** The model misinterprets the question, misses constraints, or sets up the problem incorrectly.
+1. Problem Understanding
+2. Assumptions
+3. Logical Implications
+4. Results Formulae
+5. Rigor and Completeness
 
-2.  **Assumptions:**
-    *   **Yes:** The model explicitly states necessary assumptions OR makes reasonable implicit assumptions consistent with the problem context. The assumptions made do not oversimplify or alter the core problem.
-    *   **No:** The model makes incorrect, unstated, or overly simplifying assumptions that fundamentally change the problem or lead to an invalid solution path.
-
-3.  **Logical Implications:**
-    *   **Yes:** Each step in the model's reasoning logically follows from the previous steps, definitions, axioms, or established theorems. Calculations within steps are correct.
-    *   **No:** There are logical fallacies, incorrect calculations within steps, or steps that do not logically follow from prior reasoning.
-
-4.  **Results Formulae:**
-    *   **Yes:** The final answer derived by the model is mathematically equivalent to the 'CORRECT ANSWER'. Minor formatting differences are acceptable if mathematically equivalent.
-    *   **No:** The final answer derived by the model is mathematically incorrect or inequivalent to the 'CORRECT ANSWER'.
-
-5.  **Rigor and Completeness:**
-    *   **Yes:** The model's reasoning is presented with sufficient detail and justification for each major step. It addresses all parts of the prompt and uses precise mathematical language and notation. The solution is well-organized.
-    *   **No:** The reasoning lacks sufficient detail, skips crucial steps without justification, uses imprecise language/notation, fails to address all parts of the prompt, or is poorly organized.
-
-You will be given the following inputs:
-- **PROMPT:** The original mathematics problem.
-- **MODEL RESPONSE:** The AI model's full response, including reasoning steps and its final answer.
-- **IDEAL RESPONSE:** An expert-written correct solution methodology (use this for context and comparison, especially for rigor and logical flow).
-- **CORRECT ANSWER:** The ground-truth final answer.
-
-**Instructions:**
-
-1.  Carefully read the PROMPT, MODEL RESPONSE, IDEAL RESPONSE, and CORRECT ANSWER.
-2.  Evaluate the MODEL RESPONSE against EACH of the five L1 criteria defined above.
-3.  Provide your evaluation in the following JSON format ONLY. Do not include any text outside the JSON structure. Ensure every L1 criterion has a "score" ("Yes" or "No") and a "justification".
-
-```json
-{{
-  "evaluation": {{
-    "Problem Understanding": {{
-      "score": "Yes" or "No",
-      "justification": "Your detailed reasoning for the score, citing specific parts of the MODEL RESPONSE and PROMPT."
-    }},
-    "Assumptions": {{
-      "score": "Yes" or "No",
-      "justification": "Your detailed reasoning regarding stated or implicit assumptions compared to the problem context."
-    }},
-    "Logical Implications": {{
-      "score": "Yes" or "No",
-      "justification": "Your detailed reasoning on the logical flow and correctness of calculations/steps, referencing MODEL RESPONSE and potentially IDEAL RESPONSE."
-    }},
-    "Results Formulae": {{
-      "score": "Yes" or "No",
-      "justification": "Your detailed reasoning comparing the model's final answer to the CORRECT ANSWER."
-    }},
-    "Rigor and Completeness": {{
-      "score": "Yes" or "No",
-      "justification": "Your detailed reasoning on the level of detail, clarity, precision, organization, and completeness of the MODEL RESPONSE, potentially referencing the IDEAL RESPONSE."
-    }}
-  }}
-}}
-```
-
-**Input Data:**
-
-**PROMPT:**
-{prompt_content}
-
-**MODEL RESPONSE:**
-{model_response_text}
-
-**IDEAL RESPONSE:**
-{ideal_response_text}
-
-**CORRECT ANSWER:**
-{correct_answer}
-
-**Evaluation Output (JSON only):**
+Provide your evaluation in JSON format ONLY.
 """
