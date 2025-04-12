@@ -123,8 +123,10 @@ sequenceDiagram
     EvalScript->>+CoreWorkflow: Run evaluation loop
 
     loop For Each Task/Model
+        CoreWorkflow->>DataStore: Log STRUCTURING_CALL
         CoreWorkflow->>LLMClient: Invoke Structuring LLM
         LLMClient-->>CoreWorkflow: Structured Response
+        CoreWorkflow->>DataStore: Log JUDGING_CALL
         CoreWorkflow->>LLMClient: Invoke Judging LLM (using structured response)
         LLMClient-->>CoreWorkflow: Judging Response
         CoreWorkflow->>DataStore: Append to _evaluations.jsonl
@@ -187,6 +189,7 @@ sequenceDiagram
     * Recommended temperature setting is explicitly `0.0` to ensure deterministic, consistent, and reproducible outputs for rigorous evaluations.
     * Handles API parameters (model selection, temperature setting, max tokens, potential use of Function Calling/Tool Use or JSON mode).
     * Manages retries and error handling for API calls.
+    * **Logging:** Logs initiation of structuring and judging calls with task/model IDs and model names (e.g., `STRUCTURING_CALL: ...`, `JUDGING_CALL: ...`).
   * **C3. Response Parser:**
     * Receives the raw output from the Judge LLM.
     * Parses the output to extract the structured evaluation data (Yes/No scores, justifications for each L1 parameter).
@@ -211,7 +214,7 @@ sequenceDiagram
       * `*_evaluations.jsonl`: Detailed judge evaluation results for each model response (append-friendly, `snake_case` keys).
       * `*_evaluations_formatted.json`: Pretty-printed JSON array version of the `.jsonl` file (excluding raw judge output, `snake_case` keys).
       * `*_final_results.json`: Final aggregated output, grouping results by `task_id` and combining ingested data (`prompt`, `ideal_response`, `final_answer`, `metadata`, `human_evaluations`) with judge evaluations for each model (`snake_case` keys).
-    * `logs/CogniBench_YYYYMMDD_HHMM.log`: Timestamped log file containing detailed execution information (DEBUG level and above). Console output is typically limited to WARNING level and above, plus `tqdm` progress bars.
+    * `logs/CogniBench_YYYYMMDD_HHMM.log`: Timestamped log file containing detailed execution information (DEBUG level and above), including specific logs for structuring and judging call initiation. Console output is typically limited to WARNING level and above, plus `tqdm` progress bars.
 * **G. Workflow Orchestrator:**
   * **Function:** Manages the execution flow of the pipeline steps (A -> B -> C -> D -> E).
   * **Technology:** Python scripts (`scripts/run_batch_evaluation.py`, `run_single_evaluation.py`). `run_batch_evaluation.py` orchestrates the end-to-end process including ingestion and evaluation steps.

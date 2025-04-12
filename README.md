@@ -40,7 +40,7 @@ Evaluating LLMs on complex reasoning tasks, especially in specialized fields lik
 * **Data Management:** Structured way to handle prompts, ideal responses, model responses, and evaluation results. Output files are organized into timestamped subdirectories for each batch run.
 * **Batch Processing:** Includes scripts for ingesting raw data and running evaluations on entire batches.
 * **Combined Results:** Generates a final JSON file grouping results by task for easier comparison across models.
-* **Configurable Logging:** Timestamped log files and configurable console output levels.
+* **Configurable Logging:** Timestamped log files and configurable console output levels. Includes detailed logs for structuring and judging LLM calls within the core workflow.
 * **API Interface:** (Optional) Provides an API for programmatic interaction (loads config on startup).
 * **Streamlit UI:** A user-friendly interface (`streamlit_app/`) for uploading batch files, configuring the judge (provider, model, template, API key), viewing the configuration summary and files (selected prompt template, `config.yaml`) in expandable sections, running evaluations (with dynamic spinner, progress bar, live log output, and a "Stop Processing" button to gracefully interrupt evaluations), viewing persistent logs, and visualizing results (overall performance, rubric breakdown per criterion/model, human review status counts, and explorers for all tasks and those needing review). Additionally, introduced a global `COLOR_MAP` constant for consistent and clear graph coloring across the application.
 
