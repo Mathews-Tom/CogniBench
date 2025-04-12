@@ -24,6 +24,11 @@ PROMPT_TEMPLATES_DIR_ABS = COGNIBENCH_ROOT / "prompts"
 
 st.set_page_config(layout="wide", page_title="CogniBench Runner")
 
+# Initialize temporary directory for session state
+if "temp_dir_path" not in st.session_state:
+    st.session_state.temp_dir = tempfile.TemporaryDirectory()
+    st.session_state.temp_dir_path = Path(st.session_state.temp_dir.name)
+
 st.title("CogniBench Evaluation Runner")
 
 # --- Phase 1: Input Selection ---
@@ -47,10 +52,7 @@ else:
 # st.write("*(Folder selection coming soon)*")
 
 # --- Phase 1.5: Configuration Options ---
-st.header("2. Configure LLM Judge")  # Add main header for section 2
-
 # Define available models based on the plan
-# Use requested provider names as keys
 AVAILABLE_MODELS = {
     "OpenAI": {
         "GPT-4O": "gpt-4o",
@@ -60,36 +62,82 @@ AVAILABLE_MODELS = {
         "O1": "o1",
     },
     "Anthropic": {
-        "Claude 3.5 Haiku": "claude-3-5-haiku-latest",  # Placeholder ID
+        "Claude 3.5 Haiku": "claude-3-5-haiku-latest",
         "Claude 3.5 Sonnet": "claude-3-5-sonnet-20240620",
-        "Claude 3.7 Sonnet": "claude-3-7-sonnet-latest",  # Placeholder ID
+        "Claude 3.7 Sonnet": "claude-3-7-sonnet-latest",
         "Claude 3 Opus": "claude-3-opus-20240229",
     },
     "Google": {
         "Gemini 1.5 Flash": "gemini-1.5-flash-latest",
         "Gemini 1.5 Pro": "gemini-1.5-pro-latest",
-        "Gemini 2.0 Flash": "gemini-2.0-flash",  # Placeholder ID
-        "Gemini 2.5 Pro Preview": "gemini-2.5-pro-preview-03-25",  # Placeholder ID
+        "Gemini 2.0 Flash": "gemini-2.0-flash",
+        "Gemini 2.5 Pro Preview": "gemini-2.5-pro-preview-03-25",
     },
-    # "Local LLM": { # Keep commented out or add specific local models
-    #     # Add local models here if needed
-    # }
 }
 
-# Define available prompt templates using absolute path
-try:
-    prompt_files = [
-        f for f in os.listdir(PROMPT_TEMPLATES_DIR_ABS) if f.endswith(".txt")
-    ]
-    # Store the relative path from CogniBench root for the config file
-    AVAILABLE_TEMPLATES = {
-        os.path.basename(f): str(Path("prompts") / f) for f in prompt_files
-    }
-except FileNotFoundError:
-    st.error(
-        f"Prompt templates directory not found at expected location: {PROMPT_TEMPLATES_DIR_ABS}"
+st.header("2. Configure Models and Prompts")
+
+with st.expander("Model Configurations", expanded=True):
+    col_structuring, col_judging = st.columns(2)
+
+with col_structuring:
+    st.subheader("Structuring Model Configuration")
+    structuring_provider = st.selectbox(
+        "Select Structuring Model Provider",
+        options=list(AVAILABLE_MODELS.keys()),
+        key="structuring_provider_select",
     )
-    AVAILABLE_TEMPLATES = {}
+    structuring_model = st.selectbox(
+        "Select Structuring Model",
+        options=list(AVAILABLE_MODELS[structuring_provider].keys()),
+        key="structuring_model_select",
+    )
+    structuring_api_key = st.text_input(
+        "Structuring API Key (Optional)",
+        type="password",
+        placeholder="Leave blank to use environment variable",
+        key="structuring_api_key_input",
+    )
+
+with col_judging:
+    st.subheader("Judge Model Configuration")
+    judging_provider = st.selectbox(
+        "Select Judge Model Provider",
+        options=list(AVAILABLE_MODELS.keys()),
+        key="judging_provider_select",
+    )
+    judging_model = st.selectbox(
+        "Select Judge Model",
+        options=list(AVAILABLE_MODELS[judging_provider].keys()),
+        key="judging_model_select",
+    )
+    judging_api_key = st.text_input(
+        "Judge API Key (Optional)",
+        type="password",
+        placeholder="Leave blank to use environment variable",
+        key="judging_api_key_input",
+    )
+
+# Define available models based on the plan
+# Use requested provider names as keys
+
+# Define available prompt templates for structuring and judging separately
+STRUCTURING_TEMPLATES_DIR = PROMPT_TEMPLATES_DIR_ABS / "structuring"
+JUDGING_TEMPLATES_DIR = PROMPT_TEMPLATES_DIR_ABS / "judging"
+
+
+def get_templates(directory):
+    try:
+        return {
+            f: str(directory / f) for f in os.listdir(directory) if f.endswith(".txt")
+        }
+    except FileNotFoundError:
+        st.error(f"Prompt templates directory not found: {directory}")
+        return {}
+
+
+AVAILABLE_STRUCTURING_TEMPLATES = get_templates(STRUCTURING_TEMPLATES_DIR)
+AVAILABLE_JUDGING_TEMPLATES = get_templates(JUDGING_TEMPLATES_DIR)
 
 
 # Initialize session state
@@ -103,7 +151,9 @@ if "selected_model_name" not in st.session_state:
     )[0]
 if "selected_template_name" not in st.session_state:
     st.session_state.selected_template_name = (
-        list(AVAILABLE_TEMPLATES.keys())[0] if AVAILABLE_TEMPLATES else None
+        list(AVAILABLE_STRUCTURING_TEMPLATES.keys())[0]
+        if AVAILABLE_STRUCTURING_TEMPLATES
+        else None
     )
 if "api_key" not in st.session_state:
     st.session_state.api_key = ""
@@ -133,183 +183,77 @@ if "stop_event" not in st.session_state:
 
 
 # --- Configuration Widgets (within Expander) ---
-with st.expander(
-    "Configuration Details", expanded=False
-):  # Simplified label, main header is above
-    col_config1, col_config2 = st.columns(2)
+with st.expander("Prompt configurations", expanded=False):
+    col_prompt1, col_prompt2 = st.columns(2)
 
-    with col_config1:
-        # Provider Selection
-        st.session_state.selected_provider = st.selectbox(
-            "Select LLM Provider",
-            options=list(AVAILABLE_MODELS.keys()),
-            index=list(AVAILABLE_MODELS.keys()).index(
-                st.session_state.selected_provider
-            ),
-            key="provider_select",  # Use key to avoid issues with re-rendering
+    with col_prompt1:
+        structuring_template = st.selectbox(
+            "Select Structuring Prompt Template",
+            options=list(AVAILABLE_STRUCTURING_TEMPLATES.keys()),
+            key="structuring_template_select",
         )
+        if st.button("View Structuring Prompt", key="view_structuring_prompt"):
+            structuring_prompt_path = AVAILABLE_STRUCTURING_TEMPLATES[
+                structuring_template
+            ]
+            structuring_prompt_content = Path(structuring_prompt_path).read_text()
+            temp_html_path = st.session_state.temp_dir_path / "structuring_prompt.html"
+            temp_html_path.write_text(
+                f"<pre>{structuring_prompt_content}</pre>", encoding="utf-8"
+            )
+            st.markdown(
+                f'<script>window.open("{temp_html_path.as_uri()}", "_blank");</script>',
+                unsafe_allow_html=True,
+            )
 
-        # Model Selection (dynamic based on provider)
-        available_model_names = list(
-            AVAILABLE_MODELS[st.session_state.selected_provider].keys()
+    with col_prompt2:
+        judging_template = st.selectbox(
+            "Select Judge Prompt Template",
+            options=list(AVAILABLE_JUDGING_TEMPLATES.keys()),
+            key="judging_template_select",
         )
-        # Ensure the previously selected model is still valid for the new provider, else default
-        current_model_index = 0
-        if st.session_state.selected_model_name in available_model_names:
-            current_model_index = available_model_names.index(
-                st.session_state.selected_model_name
+        if st.button("View Judging Prompt", key="view_judging_prompt"):
+            judging_prompt_path = AVAILABLE_JUDGING_TEMPLATES[judging_template]
+            judging_prompt_content = Path(judging_prompt_path).read_text()
+            temp_html_path = st.session_state.temp_dir_path / "judging_prompt.html"
+            temp_html_path.write_text(
+                f"<pre>{judging_prompt_content}</pre>", encoding="utf-8"
             )
-        else:
-            st.session_state.selected_model_name = available_model_names[
-                0
-            ]  # Default to first model of new provider
-
-        st.session_state.selected_model_name = st.selectbox(
-            "Select Judge Model",
-            options=available_model_names,
-            index=current_model_index,
-            key="model_select",
-        )
-
-    with col_config2:
-        # API Key Input
-        st.session_state.api_key = st.text_input(
-            "API Key (Optional)",
-            type="password",
-            placeholder="Leave blank to use environment variable",
-            value=st.session_state.api_key,
-            key="api_key_input",
-        )
-
-        # Prompt Template Selection
-        if AVAILABLE_TEMPLATES:
-            st.session_state.selected_template_name = st.selectbox(
-                "Select Evaluation Prompt Template",
-                options=list(AVAILABLE_TEMPLATES.keys()),
-                index=list(AVAILABLE_TEMPLATES.keys()).index(
-                    st.session_state.selected_template_name
-                )
-                if st.session_state.selected_template_name in AVAILABLE_TEMPLATES
-                else 0,
-                key="template_select",
-            )
-        else:
-            st.warning(
-                "No prompt templates found. Please add templates to the 'prompts/' directory."
-            )
-            st.session_state.selected_template_name = None
-
-        # --- Buttons Side-by-Side ---
-        btn_col1, btn_col2 = st.columns(2)
-
-        with btn_col1:
-            # --- Button to View Template ---
-            view_template_button = st.button(
-                "View Selected Prompt Template",
-                key="view_template_btn",
-                disabled=not st.session_state.selected_template_name
-                or not AVAILABLE_TEMPLATES,
-                use_container_width=True,  # Make button fill column
+            st.markdown(
+                f'<script>window.open("{temp_html_path.as_uri()}", "_blank");</script>',
+                unsafe_allow_html=True,
             )
 
-            if view_template_button:
-                if st.session_state.selected_template_name and AVAILABLE_TEMPLATES:
-                    try:
-                        selected_template_rel_path = AVAILABLE_TEMPLATES[
-                            st.session_state.selected_template_name
-                        ]
-                        selected_template_abs_path = (
-                            COGNIBENCH_ROOT / selected_template_rel_path
-                        )
-                        if selected_template_abs_path.is_file():
-                            template_content = selected_template_abs_path.read_text()
-
-                            @st.dialog(
-                                f"Prompt Template: {st.session_state.selected_template_name}"
-                            )
-                            def show_template_dialog():
-                                st.text_area(
-                                    "Template Content",
-                                    value=template_content,
-                                    height=400,  # Increased height for dialog
-                                    disabled=True,
-                                    key="dialog_template_content_display",
-                                )
-                                if st.button("Close", key="close_template_dialog"):
-                                    st.rerun()  # Close dialog by rerunning
-
-                            show_template_dialog()  # Call the dialog function
-
-                        else:
-                            # Display warning within the main expander if file not found
-                            st.warning(
-                                f"Selected template file not found: {selected_template_abs_path}"
-                            )
-                    except Exception as e:
-                        # Display error within the main expander if reading fails
-                        st.error(f"Error reading template file: {e}")
-                else:
-                    # Display warning within the main expander if no template selected
-                    st.warning("Please select a template first.")
-
-        with btn_col2:
-            # --- Button to View Config ---
-            view_config_button = st.button(
-                "View config.yaml",
-                key="view_config_btn",
-                use_container_width=True,  # Make button fill column
-            )
-
-            if view_config_button:
-                try:
-                    if BASE_CONFIG_PATH.is_file():
-                        config_content = BASE_CONFIG_PATH.read_text()
-
-                        @st.dialog("Config File: config.yaml")
-                        def show_config_dialog():
-                            st.text_area(
-                                "Config Content",
-                                value=config_content,
-                                height=400,
-                                disabled=True,
-                                key="dialog_config_content_display",
-                            )
-                            if st.button("Close", key="close_config_dialog"):
-                                st.rerun()  # Close dialog by rerunning
-
-                        show_config_dialog()  # Call the dialog function
-
-                    else:
-                        # Display warning within the main expander if file not found
-                        st.warning(f"Config file not found: {BASE_CONFIG_PATH}")
-                except Exception as e:
-                    # Display error within the main expander if reading fails
-                    st.error(f"Error reading config file: {e}")
+    config_content = BASE_CONFIG_PATH.read_text()
+    temp_html_path = st.session_state.temp_dir_path / "config_yaml.html"
+    temp_html_path.write_text(f"<pre>{config_content}</pre>", encoding="utf-8")
+    st.markdown(f"[View config.yaml]({temp_html_path.as_uri()})", unsafe_allow_html=True)
+    st.markdown("---")
 
 # --- Display Current Configuration Summary (Moved Outside Expander) ---
-st.subheader("Current Judge Configuration Summary")
-if st.session_state.selected_template_name:
-    selected_model_api_id = AVAILABLE_MODELS[st.session_state.selected_provider][
-        st.session_state.selected_model_name
-    ]
-    selected_template_path = AVAILABLE_TEMPLATES[
-        st.session_state.selected_template_name
-    ]
-    api_key_status = (
-        "**Provided**" if st.session_state.api_key else "**Using Environment Variable**"
-    )
+st.subheader("Current Configuration Summary")
 
-    # Improved formatting using markdown with line breaks
-    st.markdown(f"""
-**Provider:** `{st.session_state.selected_provider}`\n
-**Model:** `{st.session_state.selected_model_name}` (`{selected_model_api_id}`)\n
-**API Key:** {api_key_status}\n
-**Prompt Template:** `{selected_template_path}`
+selected_structuring_template_path = AVAILABLE_STRUCTURING_TEMPLATES.get(
+    structuring_template, "Not selected"
+)
+selected_judging_template_path = AVAILABLE_JUDGING_TEMPLATES.get(
+    judging_template, "Not selected"
+)
+
+structuring_api_key_status = (
+    "**Provided**" if structuring_api_key else "**Using Environment Variable**"
+)
+judging_api_key_status = (
+    "**Provided**" if judging_api_key else "**Using Environment Variable**"
+)
+
+st.markdown(f"""
+**Structuring Model:** `{structuring_provider}` - `{structuring_model}`
+**Structuring Prompt:** `{selected_structuring_template_path}`
+
+**Judge Model:** `{judging_provider}` - `{judging_model}`
+**Judge Prompt:** `{selected_judging_template_path}`
 """)
-else:
-    st.warning(
-        "Configuration incomplete: Please select a provider, model, and prompt template in the 'Configuration Details' section above."
-    )
 
 
 # Separator moved outside the expander, before the next section
@@ -507,14 +451,14 @@ if st.session_state.get("evaluation_running", False):
             selected_model_api_id = AVAILABLE_MODELS[selected_provider][
                 selected_model_name
             ]
-            selected_template_path = AVAILABLE_TEMPLATES[
-                st.session_state.selected_template_name
-            ]
             api_key = st.session_state.api_key
 
             config_data["evaluation_settings"]["judge_model"] = selected_model_api_id
-            config_data["evaluation_settings"]["prompt_template"] = (
-                selected_template_path
+            config_data["evaluation_settings"]["structuring_prompt_template"] = (
+                selected_structuring_template_path
+            )
+            config_data["evaluation_settings"]["judging_prompt_template"] = (
+                selected_judging_template_path
             )
             config_data["llm_client"]["provider"] = selected_provider
             config_data["llm_client"]["model"] = selected_model_api_id
@@ -543,7 +487,12 @@ if st.session_state.get("evaluation_running", False):
             with open(temp_config_path, "w") as f:
                 yaml.dump(config_data, f)
 
-            # 5. Start evaluation thread
+            # 5. Start evaluation thread (including structuring and judging)
+            if st.session_state.eval_start_time is None:
+                st.session_state.eval_start_time = (
+                    time.time()
+                )  # Start timing here to include structuring
+
             st.session_state.output_queue = queue.Queue()
             st.session_state.worker_thread = threading.Thread(
                 target=run_evaluation_script,
@@ -556,7 +505,9 @@ if st.session_state.get("evaluation_running", False):
                 daemon=True,
             )
             st.session_state.worker_thread.start()
-            progress_area.info(f"Started evaluation thread for {uploaded_file.name}...")
+            progress_area.info(
+                f"Started evaluation (structuring + judging) thread for {uploaded_file.name}..."
+            )
             # Don't rerun here, let the loop below handle updates
 
         except Exception as e:
