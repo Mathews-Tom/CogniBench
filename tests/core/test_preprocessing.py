@@ -1,6 +1,6 @@
 import unittest
 
-from CogniBench.core.preprocessing import (
+from core.preprocessing import (
     convert_math_notation,
     extract_final_answer,
     normalize_text_formats,
@@ -9,7 +9,19 @@ from CogniBench.core.preprocessing import (
 
 class TestPreprocessing(unittest.TestCase):
     def test_extract_final_answer(self):
-        self.assertEqual(extract_final_answer("Final Answer: 42"), "42")
+        # Test structured JSON parsing success
+        structured_json = '{"final_answer": "Structured Answer"}'
+        self.assertEqual(extract_final_answer(structured_json), "Structured Answer")
+
+        # Test structured JSON parsing failure and fallback to regex
+        fallback_text = "Final Answer: 42"
+        self.assertEqual(extract_final_answer(fallback_text), "42")
+
+        # Test structured JSON parsing failure with no fallback match
+        no_match_text = '{"invalid_json": "No final answer"}'
+        self.assertEqual(extract_final_answer(no_match_text), None)
+
+        # Existing tests
         self.assertEqual(extract_final_answer("Answer: x = 10"), "x = 10")
         self.assertEqual(extract_final_answer("No answer here"), None)
 

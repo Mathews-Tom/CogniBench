@@ -43,8 +43,35 @@ FINAL_ANSWER_PATTERNS: List[Pattern[str]] = [
 # Used to prevent capturing large subsequent paragraphs if a newline appears early.
 _MAX_LEN_BEFORE_NEWLINE_HEURISTIC: int = 150
 
+import json
+
+def extract_structured_response(response_text: str) -> Optional[str]:
+    """
+    Attempts to parse structured JSON response and extract the final answer.
+
+    Args:
+        response_text: The structured JSON response text.
+
+    Returns:
+        The extracted final answer if JSON parsing is successful, otherwise None.
+    """
+    try:
+        structured_data = json.loads(response_text)
+        final_answer = structured_data.get("final_answer", None)
+        if final_answer:
+            logger.info("Successfully extracted final answer from structured JSON.")
+            return final_answer.strip()
+    except json.JSONDecodeError as e:
+        logger.warning("JSON parsing failed: %s", e)
+    return None
+
 
 def extract_final_answer(response_text: str) -> Optional[str]:
+    # First attempt structured JSON parsing
+    structured_answer = extract_structured_response(response_text)
+    if structured_answer:
+        return structured_answer
+
     """
     Attempts to extract the final answer segment from a model's response text.
 
@@ -99,7 +126,7 @@ def extract_final_answer(response_text: str) -> Optional[str]:
                         logger.debug("Applying improved delimiter-based truncation heuristic.")
 
             logger.info(
-                "Successfully extracted final answer using pattern index %d: %s. Extracted answer: '%s'",
+                "Successfully extracted final answer using fallback regex pattern index %d: %s. Extracted answer: '%s'",
                 i, pattern.pattern, extracted
             )
             return extracted
