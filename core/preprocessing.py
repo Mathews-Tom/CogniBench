@@ -9,6 +9,7 @@ normalizing text formats.
 Version: 0.2 (Phase 5 - Code Quality Enhancements)
 """
 
+import json
 import logging
 import re
 import unicodedata
@@ -43,7 +44,6 @@ FINAL_ANSWER_PATTERNS: List[Pattern[str]] = [
 # Used to prevent capturing large subsequent paragraphs if a newline appears early.
 _MAX_LEN_BEFORE_NEWLINE_HEURISTIC: int = 150
 
-import json
 
 def extract_structured_response(response_text: str) -> Optional[str]:
     """
@@ -116,25 +116,32 @@ def extract_final_answer(response_text: str) -> Optional[str]:
 
             if not is_latex_pattern:
                 # Improved heuristic: Allow multi-line answers if enclosed in markdown or LaTeX
-                markdown_or_latex = re.match(r"(\*\*.*?\*\*|\\boxed\{.*?\}|^\$\$.*?\$\$)", extracted, re.DOTALL)
+                markdown_or_latex = re.match(
+                    r"(\*\*.*?\*\*|\\boxed\{.*?\}|^\$\$.*?\$\$)", extracted, re.DOTALL
+                )
                 if not markdown_or_latex:
                     # Extract until a clear delimiter (period, double newline, markdown heading, or end of text)
                     delimiter_match = re.search(r"(\.\s|\n\n|#+\s|$)", extracted)
                     if delimiter_match:
                         end_index = delimiter_match.start()
                         extracted = extracted[:end_index].strip()
-                        logger.debug("Applying improved delimiter-based truncation heuristic.")
+                        logger.debug(
+                            "Applying improved delimiter-based truncation heuristic."
+                        )
 
             logger.info(
                 "Successfully extracted final answer using fallback regex pattern index %d: %s. Extracted answer: '%s'",
-                i, pattern.pattern, extracted
+                i,
+                pattern.pattern,
+                extracted,
             )
             return extracted
 
     # Enhanced logging for extraction failure
     logger.warning(
         "Failed to extract final answer. Patterns attempted: %s. Response text: '%s'",
-        [p.pattern for p in FINAL_ANSWER_PATTERNS], response_text[:200] + "..." if len(response_text) > 200 else response_text
+        [p.pattern for p in FINAL_ANSWER_PATTERNS],
+        response_text[:200] + "..." if len(response_text) > 200 else response_text,
     )
     return None
 
@@ -212,8 +219,14 @@ if __name__ == "__main__":
 
     test_cases = {
         "Keyword '**Answer:**'": ("Calculation complete. **Answer:** 42", "42"),
-        "Keyword '**Conclusion:**'": ("Analysis done. **Conclusion:** The result is 3.14", "The result is 3.14"),
-        "Keyword '**Exact Answer:**'": ("Final computation. **Exact Answer:** x = 7", "x = 7"),
+        "Keyword '**Conclusion:**'": (
+            "Analysis done. **Conclusion:** The result is 3.14",
+            "The result is 3.14",
+        ),
+        "Keyword '**Exact Answer:**'": (
+            "Final computation. **Exact Answer:** x = 7",
+            "x = 7",
+        ),
         "LaTeX boxed notation": ("The solution is \\boxed{y = mx + c}", "y = mx + c"),
         "Keyword 'Final Answer'": ("Blah blah. Final Answer: x = 5", "x = 5"),
         "Keyword 'The final answer is' + newline": (
@@ -250,4 +263,5 @@ if __name__ == "__main__":
     test_norm_3 = None
     print(f"'{test_norm_1}' -> '{normalize_text_formats(test_norm_1)}'")
     print(f"'{test_norm_2}' -> '{normalize_text_formats(test_norm_2)}'")
+    print(f"'{test_norm_3}' -> '{normalize_text_formats(test_norm_3)}'")
     print(f"'{test_norm_3}' -> '{normalize_text_formats(test_norm_3)}'")

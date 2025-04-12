@@ -27,7 +27,8 @@ try:
     import sympy
 
     # Import specific sympy components needed
-    from sympy import Basic, N, SympifyError, simplify, sympify  # N for numerical eval
+    from sympy import SympifyError  # N for numerical eval
+    from sympy import Basic, N, simplify, sympify
     from sympy.parsing.latex import parse_latex
 
     SYMPY_AVAILABLE = True
@@ -668,6 +669,11 @@ if __name__ == "__main__":
     # This should fallback to string comparison because 'invalid[syntax' cannot be parsed
     results12 = perform_postprocessing(good_parse_input_pass, "invalid[syntax", "x")
     logger.info("Input: %s, Answers: ('invalid[syntax', 'x')", good_parse_input_pass)
+    logger.info("Result:\n%s", json.dumps(results12, indent=2))
+    assert results12["final_answer_verified"] is False  # String comparison fails
+    assert "String" in results12["verification_message"]  # Should indicate fallback
+
+    logger.info("\n--- All Postprocessing Tests Passed (Implicitly) ---")
     logger.info("Result:\n%s", json.dumps(results12, indent=2))
     assert results12["final_answer_verified"] is False  # String comparison fails
     assert "String" in results12["verification_message"]  # Should indicate fallback

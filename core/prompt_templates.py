@@ -1,8 +1,9 @@
+import functools
 import logging
 from pathlib import Path
-import functools
 
 logger = logging.getLogger(__name__)
+
 
 @functools.lru_cache(maxsize=32)
 def load_prompt_template(template_path_str: str) -> str:
@@ -13,11 +14,16 @@ def load_prompt_template(template_path_str: str) -> str:
         if resolved_path.is_file():
             template_path = resolved_path
         else:
-            logger.error(f"Prompt template file not found at '{template_path_str}' or '{resolved_path}'")
-            raise FileNotFoundError(f"Prompt template file not found at '{template_path_str}' or '{resolved_path}'")
+            logger.error(
+                f"Prompt template file not found at '{template_path_str}' or '{resolved_path}'"
+            )
+            raise FileNotFoundError(
+                f"Prompt template file not found at '{template_path_str}' or '{resolved_path}'"
+            )
 
     with template_path.open("r", encoding="utf-8") as f:
         return f.read()
+
 
 # Existing templates remain unchanged below this line
 INITIAL_JUDGE_PROMPT_TEMPLATE = """

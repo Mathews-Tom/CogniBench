@@ -37,32 +37,33 @@ graph LR
     D --> E[Output Generation];
 
     %% Data Storage & Logging
-    %% Intake reads ingested
-    F["Data Storage (.json, .jsonl)"] <--> A; 
-    %% Output writes results
-    F <--> E; 
-    %% Orchestrator writes logs
-    LOG["Log Storage (.log)"] <--> G; 
+    F["Data Storage (.json, .jsonl)"] <--> A;
+    F <--> E;
+    LOG["Log Storage (.log)"] <--> G;
 
     %% Orchestration & UI
-    %% Script reads ingested data path
-    G["Batch Script Orchestrator (`run_batch_evaluation.py`)"] -- Manages --> A; 
-    %% Script calls evaluation workflow
-    G -- Calls --> C; 
-    %% Script combines results
-    G -- Manages --> D; 
-    %% Script defines output paths
-    G -- Manages --> E; 
-    %% UI runs the script
-    I["Streamlit UI (`streamlit_app/app.py`)"] -- Triggers --> G;
-    %% UI reads final_results.json
-    I -- Reads Results --> F; 
+    G["Batch Script Orchestrator (run_batch_evaluation.py)"] -- Manages --> A;
+    G -- Calls --> C;
+    G -- Manages --> D;
+    G -- Manages --> E;
+    I["Streamlit UI (streamlit_app/app.py)"] -- Triggers --> G;
+    I -- Reads Results --> F;
+    I -- Uses --> CM[Global COLOR_MAP Constant];
+
+    %% UI Enhancements
+    subgraph "Streamlit UI Enhancements"
+        direction TB
+        I --> UI1[Expandable Sections for Prompts & Config];
+        UI1 --> UI2[Consistent Graph Coloring];
+    end
 
     %% Evaluation Core Details
     subgraph "Evaluation Core (LLM Judge)"
         direction LR
         C1[Prompt Constructor] --> C2(Judge LLM Invocation);
         C2 --> C3[Response Parser];
+        C1 -- Uses --> JP[Judging Prompt];
+        C1 -- Uses --> SP[Structuring Prompt];
     end
 
     %% Optional API Layer (Not used by Streamlit App)
@@ -72,10 +73,14 @@ graph LR
     style F fill:#9575cd,stroke:#333,stroke-width:2px
     style LOG fill:#b0bec5,stroke:#333,stroke-width:1px
     style C fill:#64b5f6,stroke:#333,stroke-width:2px
-    %% Dashed border for optional/unused
     style H fill:#4db6ac,stroke:#333,stroke-width:1px,stroke-dasharray: 5 5
     style G fill:#ffca28,stroke:#333,stroke-width:2px
     style I fill:#a5d6a7,stroke:#333,stroke-width:2px
+    style CM fill:#ff7043,stroke:#333,stroke-width:1px
+    style UI1 fill:#81c784,stroke:#333,stroke-width:1px
+    style UI2 fill:#81c784,stroke:#333,stroke-width:1px
+    style JP fill:#4fc3f7,stroke:#333,stroke-width:1px
+    style SP fill:#4fc3f7,stroke:#333,stroke-width:1px
   end
 ```
 
@@ -88,45 +93,61 @@ The following diagram illustrates the sequence of operations when using the Stre
 ```mermaid
 sequenceDiagram
     participant User
-    participant UI as Streamlit UI (`app.py`)
-    participant BatchScript as `run_batch_evaluation.py`
-    participant IngestScript as `ingest_rlhf_data.py`
-    participant EvalScript as `run_single_evaluation.py`
-    participant CoreWorkflow as `core/workflow.py`
+    participant UI as Streamlit UI (app.py)
+    participant BatchScript as run_batch_evaluation.py
+    participant IngestScript as ingest_rlhf_data.py
+    participant EvalScript as run_single_evaluation.py
+    participant CoreWorkflow as core/workflow.py
     participant LLMClient as LLM Clients
-    participant DataStore as Data Storage (`data/`, `logs/`)
+    participant DataStore as Data Storage (data/, logs/)
 
     User->>+UI: Upload Raw JSON File(s)
     User->>UI: Configure Judge (Model, Template, API Key)
+    User->>UI: View Prompts & Config in Expandable Sections
+    UI->>UI: Use Global COLOR_MAP for Graph Coloring
     User->>+UI: Click "Run Evaluations"
     UI->>+BatchScript: Execute via subprocess (pass file paths, config)
     User->>+UI: Click "Stop Processing"
     UI->>BatchScript: Signal stop event to gracefully terminate evaluation
+
     BatchScript->>+IngestScript: Execute (pass raw file path)
-    IngestScript->>DataStore: Write `_ingested_*.json`
+    IngestScript->>+DataStore: Write _ingested_*.json
     IngestScript-->>-BatchScript: Return ingested file path (stdout)
+
     BatchScript->>+EvalScript: Execute (pass ingested path, config, output path)
     EvalScript->>+CoreWorkflow: Run evaluation loop
+
     loop For Each Task/Model
-        CoreWorkflow->>LLMClient: Invoke Judge LLM
-        LLMClient-->>CoreWorkflow: Raw Judge Response
-        CoreWorkflow->>DataStore: Append to `_evaluations.jsonl`
+        CoreWorkflow->>LLMClient: Invoke Structuring LLM
+        LLMClient-->>CoreWorkflow: Structured Response
+        CoreWorkflow->>LLMClient: Invoke Judging LLM (using structured response)
+        LLMClient-->>CoreWorkflow: Judging Response
+        CoreWorkflow->>DataStore: Append to _evaluations.jsonl
+        CoreWorkflow-->>DataStore: Append complete
     end
+
     CoreWorkflow-->>-EvalScript: Complete
     EvalScript-->>-BatchScript: Complete
-    BatchScript->>BatchScript: Format `_evaluations.jsonl` -> `_evaluations_formatted.json`
-    BatchScript->>DataStore: Read `_ingested_*.json`
-    BatchScript->>DataStore: Read `_evaluations_formatted.json`
+
+    BatchScript->>BatchScript: Format _evaluations.jsonl -> _evaluations_formatted.json
+    BatchScript->>+DataStore: Read _ingested_*.json
+    DataStore-->>-BatchScript: Return ingested data
+    BatchScript->>+DataStore: Read _evaluations_formatted.json
+    DataStore-->>-BatchScript: Return formatted evaluations
     BatchScript->>BatchScript: Combine Data
-    BatchScript->>DataStore: Write `_final_results.json`
-    BatchScript->>UI: Print `_final_results.json` path (stdout)
+    BatchScript->>+DataStore: Write _final_results.json
+    DataStore-->>-BatchScript: Write complete
+
+    BatchScript->>UI: Print _final_results.json path (stdout)
     BatchScript-->>-UI: Process finishes
     UI->>UI: Capture results path from stdout
-    UI->>+DataStore: Read `_final_results.json`
+
+    UI->>+DataStore: Read _final_results.json
     DataStore-->>-UI: Return results data
     UI->>UI: Process data (Pandas)
-    UI->>UI: Generate Graphs (Plotly) & Tables
+    UI->>UI: Generate Graphs (Plotly) & Tables using COLOR_MAP
     UI-->>-User: Display Results & Visualizations
+
 ```
 
 ## 5. Component Breakdown
@@ -232,7 +253,7 @@ sequenceDiagram
 * **Scalability:** Design for asynchronous processing using the orchestrator and potentially scale Judge LLM invocations horizontally.
 * **Context Window Limitations:** Advanced math solutions can be long. Ensure the Judge LLM has a sufficient context window. If not, strategies like breaking down the evaluation per step or using abstracted summaries might be needed (but risk losing fidelity).
 * **Cost Management:** Monitor LLM API usage closely. Explore caching identical requests (if applicable). Potentially use smaller/cheaper models for simpler preprocessing tasks (like answer extraction).
-* **Rubric Evolution:** The evaluation rubric (expected criteria, allowed scores) is now defined in `config.yaml`, making it easier to modify without code changes. The prompt template path is also configured.
+* **Rubric Evolution:** The evaluation rubric (expected criteria, allowed scores) is now defined in `config.yaml`, making it easier to modify without code changes. The prompt template path is also configured. The judging and structuring prompts have been updated to align precisely with these rubric criteria, ensuring consistency and accuracy in evaluations.
 * **Security:** If handling sensitive/proprietary prompts or model outputs, ensure appropriate data handling, access controls, and potentially use models with stronger data privacy guarantees (e.g., Azure OpenAI).
 
 ## 9. Future Enhancements
@@ -243,7 +264,7 @@ sequenceDiagram
 * **Advanced Answer Verification:** Implement more sophisticated verification for different answer types (e.g., code execution, set comparison, numerical tolerance).
 * **Automated Ideal Response Generation (Research):** Explore using powerful LLMs within the CogniBench workflow to *generate* the `IDEAL RESPONSE` as a starting point for human experts, speeding up the process.
 * **Integration with L0:** Tightly integrate the L1 Judge output from CogniBench back into the L0 Golden Prompt Discovery process for richer failure analysis.
-* **User Interface (Streamlit):** Further enhance the Streamlit application (`streamlit_app/`) for better analysis and usability (Note: Recent updates include buttons to view selected prompt templates and `config.yaml` in dialogs, placing these buttons side-by-side, and displaying the configuration summary below the configuration details section):
+* **User Interface (Streamlit):** Further enhance the Streamlit application (`streamlit_app/`) for better analysis and usability (Note: Recent updates include buttons to view selected prompt templates and `config.yaml` in expandable sections, placing these buttons side-by-side, and displaying the configuration summary below the configuration details section. Additionally, introduced a global `COLOR_MAP` constant for consistent and clear graph coloring across the application):
   * **Dynamic Spinner:** Added a dynamic spinner to visually indicate ongoing evaluations clearly.
   * **Stop Processing Button:** Implemented a "Stop Processing" button allowing users to gracefully interrupt ongoing evaluations.
   * **Interactive Filtering:** Allow clicking on graph elements (e.g., bars) to filter the data tables below.

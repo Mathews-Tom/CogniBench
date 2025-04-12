@@ -22,6 +22,20 @@ BASE_CONFIG_PATH = COGNIBENCH_ROOT / "config.yaml"
 RUN_BATCH_SCRIPT_PATH = COGNIBENCH_ROOT / "scripts" / "run_batch_evaluation.py"
 PROMPT_TEMPLATES_DIR_ABS = COGNIBENCH_ROOT / "prompts"
 
+# --- Global Color Map Constant ---
+COLOR_MAP = {
+    "Pass": "#28a745",
+    "Yes": "#28a745",
+    "Not Required": "#28a745",
+    "Fail": "#dc3545",
+    "No": "#dc3545",
+    "Needs Review": "#dc3545",
+    "Partial": "#ffc107",
+    "None": "#fd7e14",
+    "null": "#fd7e14",
+    "N/A": "#fd7e14",
+}
+
 st.set_page_config(layout="wide", page_title="CogniBench Runner")
 
 # Initialize temporary directory for session state
@@ -192,18 +206,9 @@ with st.expander("Prompt configurations", expanded=False):
             options=list(AVAILABLE_STRUCTURING_TEMPLATES.keys()),
             key="structuring_template_select",
         )
-        if st.button("View Structuring Prompt", key="view_structuring_prompt"):
-            structuring_prompt_path = AVAILABLE_STRUCTURING_TEMPLATES[
-                structuring_template
-            ]
-            structuring_prompt_content = Path(structuring_prompt_path).read_text()
-            temp_html_path = st.session_state.temp_dir_path / "structuring_prompt.html"
-            temp_html_path.write_text(
-                f"<pre>{structuring_prompt_content}</pre>", encoding="utf-8"
-            )
-            st.markdown(
-                f'<script>window.open("{temp_html_path.as_uri()}", "_blank");</script>',
-                unsafe_allow_html=True,
+        if st.button("View Structuring Prompt"):
+            st.session_state.show_structuring = not st.session_state.get(
+                "show_structuring", False
             )
 
     with col_prompt2:
@@ -212,23 +217,32 @@ with st.expander("Prompt configurations", expanded=False):
             options=list(AVAILABLE_JUDGING_TEMPLATES.keys()),
             key="judging_template_select",
         )
-        if st.button("View Judging Prompt", key="view_judging_prompt"):
-            judging_prompt_path = AVAILABLE_JUDGING_TEMPLATES[judging_template]
-            judging_prompt_content = Path(judging_prompt_path).read_text()
-            temp_html_path = st.session_state.temp_dir_path / "judging_prompt.html"
-            temp_html_path.write_text(
-                f"<pre>{judging_prompt_content}</pre>", encoding="utf-8"
-            )
-            st.markdown(
-                f'<script>window.open("{temp_html_path.as_uri()}", "_blank");</script>',
-                unsafe_allow_html=True,
+        if st.button("View Judging Prompt"):
+            st.session_state.show_judging = not st.session_state.get(
+                "show_judging", False
             )
 
-    config_content = BASE_CONFIG_PATH.read_text()
-    temp_html_path = st.session_state.temp_dir_path / "config_yaml.html"
-    temp_html_path.write_text(f"<pre>{config_content}</pre>", encoding="utf-8")
-    st.markdown(f"[View config.yaml]({temp_html_path.as_uri()})", unsafe_allow_html=True)
-    st.markdown("---")
+    if st.button("View Config.yaml"):
+        st.session_state.show_config = not st.session_state.get("show_config", False)
+
+if st.session_state.get("show_structuring", False):
+    with st.expander("Structuring Prompt", expanded=True):
+        structuring_prompt_path = AVAILABLE_STRUCTURING_TEMPLATES[structuring_template]
+        structuring_prompt_content = Path(structuring_prompt_path).read_text()
+        st.code(structuring_prompt_content, language="text")
+
+if st.session_state.get("show_judging", False):
+    with st.expander("Judging Prompt", expanded=True):
+        judging_prompt_path = AVAILABLE_JUDGING_TEMPLATES[judging_template]
+        judging_prompt_content = Path(judging_prompt_path).read_text()
+        st.code(judging_prompt_content, language="text")
+
+if st.session_state.get("show_config", False):
+    with st.expander("Config.yaml", expanded=True):
+        config_content = BASE_CONFIG_PATH.read_text()
+        st.code(config_content, language="yaml")
+
+st.markdown("---")
 
 # --- Display Current Configuration Summary (Moved Outside Expander) ---
 st.subheader("Current Configuration Summary")
@@ -880,7 +894,6 @@ if st.session_state.results_df is not None:
                 .reset_index(name="count")
             )
             category_orders = {agg_score_col: ["Pass", "Fail", "None"]}
-            color_map = {"Pass": "green", "Fail": "red", "None": "#FFB8B3"}
 
             fig_perf = px.bar(
                 performance_counts,
@@ -895,7 +908,7 @@ if st.session_state.results_df is not None:
                 },
                 barmode="group",
                 category_orders=category_orders,
-                color_discrete_map=color_map,
+                color_discrete_map=COLOR_MAP,
             )
             st.plotly_chart(fig_perf, use_container_width=True)
         else:
@@ -1025,11 +1038,6 @@ if st.session_state.results_df is not None:
                 category_orders = {
                     review_status_col: ["Needs Review", "Not Required", "N/A"]
                 }  # Use actual values
-                color_map = {
-                    "Needs Review": "orange",
-                    "Not Required": "lightblue",
-                    "N/A": "grey",
-                }  # Use actual values
 
                 # --- Create Graph ---
                 fig_review = px.bar(
@@ -1045,7 +1053,7 @@ if st.session_state.results_df is not None:
                     },
                     barmode="group",
                     category_orders=category_orders,
-                    color_discrete_map=color_map,
+                    color_discrete_map=COLOR_MAP,
                     text="count",  # Add count numbers on bars
                 )
 

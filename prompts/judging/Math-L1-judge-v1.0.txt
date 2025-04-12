@@ -7,25 +7,31 @@ You are tasked with evaluating structured mathematical responses based on a prov
 
 Evaluate the structured model response against the structured ideal response and correct answer using the following rubric criteria:
 
-1. **Correctness of Final Answer**: Does the final answer match the correct answer exactly? (Yes/No)
+1. **Problem Understanding**: Does the response demonstrate a clear understanding of the problem? (Yes/No/Partial)
    - Justification:
 
-2. **Completeness of Steps**: Are all necessary steps clearly listed and logically ordered? (Yes/No)
+2. **Assumptions**: Are assumptions explicitly stated and valid for solving the problem? (Yes/No/Partial)
    - Justification:
 
-3. **Accuracy of Intermediate Results**: Are intermediate results accurate and correctly derived? (Yes/No)
+3. **Logical Implications**: Are logical implications clearly identified and correctly applied? (Yes/No/Partial)
    - Justification:
 
-4. **Validity of Assumptions**: Are assumptions explicitly stated and valid for solving the problem? (Yes/No)
+4. **Results Formulae**: Are the formulae or methods used to derive results correct and appropriate? (Yes/No/Partial)
+   - Justification:
+
+5. **Rigor and Completeness**: Is the solution rigorous, complete, and logically sound? (Yes/No/Partial)
    - Justification:
 
 Provide your evaluation strictly in the following JSON format:
 
 {{
-  "correctness_of_final_answer": {{"score": "Yes/No", "justification": "..."}},
-  "completeness_of_steps": {{"score": "Yes/No", "justification": "..."}},
-  "accuracy_of_intermediate_results": {{"score": "Yes/No", "justification": "..."}},
-  "validity_of_assumptions": {{"score": "Yes/No", "justification": "..."}}
+  "evaluation": {{
+    "problem_understanding": {{"score": "Yes/No/Partial", "justification": "..."}},
+    "assumptions": {{"score": "Yes/No/Partial", "justification": "..."}},
+    "logical_implications": {{"score": "Yes/No/Partial", "justification": "..."}},
+    "results_formulae": {{"score": "Yes/No/Partial", "justification": "..."}},
+    "rigor_and_completeness": {{"score": "Yes/No/Partial", "justification": "..."}}
+  }}
 }}
 
 Ensure the JSON is valid and properly formatted.
