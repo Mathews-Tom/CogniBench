@@ -181,7 +181,7 @@ if __name__ == "__main__":
         "--config",
         type=str,
         required=True,
-        help="Path to the CogniBench configuration file for run_single_evaluation.py.",
+        help="Path to the CogniBench configuration file (used by scripts/run_single_evaluation.py).",
     )
     # Add other arguments needed by run_single_evaluation.py if necessary
 
@@ -277,8 +277,8 @@ if __name__ == "__main__":
     )
 
     logger.debug("--- Starting Step 2: Evaluation ---")  # Changed to debug
-    # Assumes run_single_evaluation.py is in the parent directory (CogniBench/)
-    evaluation_script_path = Path(__file__).parent.parent / "run_single_evaluation.py"
+    # Path to the single evaluation script within the same scripts directory
+    evaluation_script_path = Path(__file__).parent / "run_single_evaluation.py"
     evaluation_command = [
         sys.executable,
         str(evaluation_script_path),
@@ -287,14 +287,14 @@ if __name__ == "__main__":
         "--input-data",
         str(
             ingested_file_path
-        ),  # Assuming run_single_evaluation takes data path via an argument
-        # Add other necessary arguments for run_single_evaluation.py here
+        ),  # Assuming scripts/run_single_evaluation.py takes data path via an argument
+        # Add other necessary arguments for scripts/run_single_evaluation.py here
         "--output-jsonl",  # Argument to pass the target .jsonl file path
         str(eval_jsonl_path),
     ]
 
     # Note: Adjust "--input-data" above based on the actual argument name
-    # expected by run_single_evaluation.py to receive the ingested data path.
+    # expected by scripts/run_single_evaluation.py to receive the ingested data path.
 
     # Run evaluation command without capturing output to allow tqdm to display
     logger.debug(

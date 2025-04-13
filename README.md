@@ -82,7 +82,7 @@ CogniBench/
 ├── pyproject.toml        # Project metadata and dependencies (PEP 621)
 ├── README.md             # This file
 ├── roadmap.md            # Project roadmap and future plans
-├── run_single_evaluation.py # Script to execute evaluation on pre-ingested data
+├── scripts/run_single_evaluation.py # Script to execute evaluation on pre-ingested data
 └── uv.lock               # Dependency lock file for uv package manager
 ```
 
@@ -115,7 +115,7 @@ CogniBench/
 This script processes a JSON file already in the CogniBench ingested format (like the output of `ingest_rlhf_data.py`).
 
 ```bash
-python3 run_single_evaluation.py --input-data <path_to_ingested_data.json> --config <path_to_config.yaml> --output-jsonl <path_to_output.jsonl>
+python3 scripts/run_single_evaluation.py --input-data <path_to_ingested_data.json> --config <path_to_config.yaml> --output-jsonl <path_to_output.jsonl>
 ```
 
 * `--input-data`: Path to the JSON file containing tasks, prompts, ideal responses, and model responses.
@@ -137,7 +137,7 @@ This script will:
 
 1. Create a timestamped subdirectory in `data/` (e.g., `data/Batch-XXX_YYYYMMDD_HHMM/`).
 2. Run the ingestion script, saving the ingested data JSON inside the subdirectory.
-3. Run the evaluation script (`run_single_evaluation.py`) using the ingested data, saving the detailed results (`_evaluations.jsonl`) inside the subdirectory.
+3. Run the evaluation script (`scripts/run_single_evaluation.py`) using the ingested data, saving the detailed results (`_evaluations.jsonl`) inside the subdirectory.
 4. Create a formatted JSON version (`_evaluations_formatted.json`) inside the subdirectory.
 5. Create a final combined results file (`_final_results.json`) inside the subdirectory, grouping results by task ID.
 6. Log detailed output to a timestamped file in `logs/`.
