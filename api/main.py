@@ -15,10 +15,12 @@ from core.workflow import run_evaluation_workflow
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Security
 from fastapi.security import APIKeyHeader
+from CogniBench.core.log_setup import setup_logging
 
-# Setup logger for this module
-# Note: FastAPI has its own logging, but we can use this for config loading etc.
-logger = logging.getLogger(__name__)
+# Setup logging first
+setup_logging()
+# Note: FastAPI has its own logging, but we use 'backend' for our app logic.
+logger = logging.getLogger('backend')
 logging.basicConfig(level=logging.INFO)  # Basic config for startup logs
 
 # Import schemas and potentially core functions if needed later

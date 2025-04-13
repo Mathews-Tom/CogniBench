@@ -17,7 +17,7 @@ import re
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 # Setup logger for this module
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('backend')
 
 # --- Module Constants ---
 # Note: The default constants EXPECTED_CRITERIA_FULL_L1 and ALLOWED_SCORES
@@ -168,9 +168,13 @@ def parse_judge_response(
         parsed_data: Any = json.loads(json_string)
         logger.debug("Successfully parsed JSON block.")
     except json.JSONDecodeError as e:
-        logger.warning("Standard JSON parsing failed, attempting tolerant parsing with json5: %s", e)
+        logger.warning(
+            "Standard JSON parsing failed, attempting tolerant parsing with json5: %s",
+            e,
+        )
         try:
             import json5
+
             parsed_data = json5.loads(json_string)
             logger.debug("Successfully parsed JSON block using json5.")
         except Exception as json5_e:

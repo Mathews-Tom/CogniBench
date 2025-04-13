@@ -16,7 +16,9 @@ try:
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
     from core.log_setup import setup_logging
-
+# Setup logging first
+setup_logging()
+logger = logging.getLogger('backend')
 logger = logging.getLogger(__name__)
 
 
@@ -61,7 +63,8 @@ def main(args):
         logger.error("Error loading input data file %s", input_data_path, exc_info=True)
         sys.exit(1)
 
-    all_results = []
+    task_results_map = {}  # Changed from list to dict
+    structured_ideal_cache = {}  # Cache for structured ideal responses per task_id
     overall_success = True
 
     total_tasks = len(evaluation_tasks)
@@ -76,7 +79,9 @@ def main(args):
         correct_answer = task.get("correct_answer", "")
 
         ideal_response_text = task.get("ideal_response")
-        structured_ideal_response = task.get("structured_ideal_response")
+        structured_ideal_response = task.get(
+            "structured_ideal_response"
+        )  # Read from task data
 
         model_responses = task.get("model_responses", [])
 
@@ -85,6 +90,16 @@ def main(args):
                 "Skipping task %s due to missing prompt or ideal response.", task_id
             )
             continue
+
+        # Initialize task entry in the map if it doesn't exist
+        if task_id not in task_results_map:
+            task_results_map[task_id] = {
+                "task_id": task_id,
+                "prompt": prompt_text,
+                "ideal_response": ideal_response_text,
+                "structured_ideal_response": structured_ideal_response,  # Add SIR here
+                "evaluations": [],
+            }
 
         for model_response in model_responses:
             response_text = model_response.get("response_text")
@@ -124,9 +139,17 @@ def main(args):
                 output_jsonl_path=Path(args.output_jsonl)
                 if args.output_jsonl
                 else None,
+                structured_ideal_cache=structured_ideal_cache,  # Pass cache
             )
 
-            all_results.append(result)
+            # Append the workflow result to the specific task's evaluations list
+            if task_id in task_results_map:
+                task_results_map[task_id]["evaluations"].append(result)
+            else:
+                # This case should ideally not happen if initialization is correct
+                logger.error(
+                    f"Task ID {task_id} not found in map during result appending."
+                )
 
             if result.get("status") != "success":
                 overall_success = False
@@ -143,8 +166,10 @@ def main(args):
     results_output_path = Path(results_output_path_str)
     results_output_path.parent.mkdir(parents=True, exist_ok=True)
     try:
+        # Convert the map values (task objects) into a list for the final JSON output
+        final_output_list = list(task_results_map.values())
         with results_output_path.open("w", encoding="utf-8") as f:
-            json.dump(all_results, f, indent=2)
+            json.dump(final_output_list, f, indent=2)
         logger.info("Overall results saved to: %s", results_output_path)
     except Exception as e:
         logger.error(
@@ -159,7 +184,8 @@ def main(args):
 
 
 if __name__ == "__main__":
-    setup_logging()
+    # Logging is now handled by the calling script (e.g., run_batch_evaluation.py)
+    # setup_logging() # Removed call
     parser = argparse.ArgumentParser(
         description="Run CogniBench evaluation on ingested data."
     )

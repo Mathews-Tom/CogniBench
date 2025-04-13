@@ -16,7 +16,8 @@ import unicodedata
 from typing import List, Optional, Pattern
 
 # Setup logger for this module
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('backend')
+
 
 def safe_json_parse(json_string: str) -> Optional[dict]:
     """
@@ -33,11 +34,14 @@ def safe_json_parse(json_string: str) -> Optional[dict]:
             raise ValueError("Empty JSON string")
         return json.loads(json_string)
     except json.JSONDecodeError as e:
-        logger.warning(f"JSON parsing failed: {e.msg} at line {e.lineno} column {e.colno}")
+        logger.warning(
+            f"JSON parsing failed: {e.msg} at line {e.lineno} column {e.colno}"
+        )
         return None
     except ValueError as e:
         logger.warning(f"JSON parsing failed: {str(e)}")
         return None
+
 
 # --- Constants ---
 # Regular expression patterns to identify potential final answer sections in text.

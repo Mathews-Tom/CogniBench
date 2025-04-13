@@ -1,7 +1,8 @@
 import argparse
 import datetime
 import json
-import logging  # Import logging
+import logging
+import re
 import sys
 from pathlib import Path
 
@@ -23,9 +24,8 @@ except ImportError:
 
 
 # Get logger for this module
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('backend')
 
-import re
 
 def robust_latex_conversion(text):
     """
@@ -41,6 +41,7 @@ def robust_latex_conversion(text):
     # Remove curly braces
     text = re.sub(r"[{}]", "", text)
     return text.strip()
+
 
 def enhanced_final_answer_extraction(raw_pref_form):
     """
@@ -91,7 +92,12 @@ def ingest_rlhf_data(input_path: Path, output_path: Path):
 
     logger.info("Starting ingestion of %d tasks.", len(data["rlhf"]))
     for idx, task_item in enumerate(data["rlhf"], start=1):
-        logger.debug("Processing task %d/%d: Task ID %s", idx, len(data["rlhf"]), task_item.get("taskId"))
+        logger.debug(
+            "Processing task %d/%d: Task ID %s",
+            idx,
+            len(data["rlhf"]),
+            task_item.get("taskId"),
+        )
         task_id = task_item.get("taskId")
         messages = task_item.get("messages", [])
 
@@ -200,7 +206,9 @@ def ingest_rlhf_data(input_path: Path, output_path: Path):
             # Print warnings to stderr
             logger.warning(
                 "Skipping task ID %s due to missing prompt or ideal response. Prompt: %s, Ideal Response: %s",
-                task_id, user_prompt is not None, ideal_response is not None
+                task_id,
+                user_prompt is not None,
+                ideal_response is not None,
             )
 
     # Ensure the output directory exists using pathlib

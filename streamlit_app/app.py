@@ -1,14 +1,22 @@
 import json
+import logging  # Added import
 import os
 import queue
 import re
 import subprocess
-import sys
+import sys  # Keep sys import
 import tempfile
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
+
+# --- Add project root to sys.path ---
+APP_DIR = Path(__file__).parent
+COGNIBENCH_ROOT = APP_DIR.parent
+if str(COGNIBENCH_ROOT) not in sys.path:
+    sys.path.insert(0, str(COGNIBENCH_ROOT))
+# --- End sys.path modification ---
 from typing import Any, Dict, Optional  # Added imports
 
 import pandas as pd
@@ -16,6 +24,18 @@ import plotly.express as px
 import streamlit as st
 import yaml
 
+# Import the setup function using absolute path (now possible due to sys.path modification)
+from core.log_setup import setup_logging  # Reverted to absolute import
+
+# Setup logging for the Streamlit app
+logger = logging.getLogger('streamlit')
+if "logging_setup_complete" not in st.session_state:
+    setup_logging()  # Call the setup function
+    st.session_state.logging_setup_complete = True  # Mark as done
+    # Get the specific logger for streamlit
+    logger = logging.getLogger('streamlit')
+    logger.info("Initial logging setup complete.")  # Log only once
+    logger.info("Streamlit app started.")  # Move this here
 # --- Constants ---
 APP_DIR = Path(__file__).parent
 COGNIBENCH_ROOT = APP_DIR.parent
@@ -41,11 +61,13 @@ st.set_page_config(layout="wide", page_title="CogniBench Runner")
 
 # Initialize temporary directory for session state
 if "temp_dir_path" not in st.session_state:
+    logger.info("Initializing temporary directory for session state.")
     st.session_state.temp_dir = tempfile.TemporaryDirectory()
     st.session_state.temp_dir_path = Path(st.session_state.temp_dir.name)
 
 
 st.title("CogniBench Evaluation Runner")
+# logger.info("Streamlit app started.") # Moved to initial setup block
 
 # --- Phase 1: Input Selection ---
 st.header("1. Upload Raw RLHF JSON Data file(s)")  # Renamed header
@@ -59,6 +81,14 @@ uploaded_files = st.file_uploader(
 
 if uploaded_files:
     st.write(f"Uploaded {len(uploaded_files)} file(s):")
+    uploaded_file_names = [f.name for f in uploaded_files]
+    # Log only if the set of uploaded files has changed
+    current_upload_key = tuple(sorted(uploaded_file_names))
+    if st.session_state.get("last_uploaded_files_key") != current_upload_key:
+        logger.info(
+            f"Uploaded {len(uploaded_files)} files: {', '.join(uploaded_file_names)}"
+        )
+        st.session_state.last_uploaded_files_key = current_upload_key
     for uploaded_file in uploaded_files:
         st.write(f"- {uploaded_file.name}")
 else:
@@ -329,14 +359,29 @@ st.markdown("---")
 @st.cache_data(show_spinner=False)  # Re-enable cache
 def load_and_process_results(absolute_results_paths):
     """Loads data from _final_results.json files (given absolute paths) and processes into a DataFrame."""
+    logger.info(
+        f"Attempting to load and process results from: {absolute_results_paths}"
+    )
     all_results_data = []
+    processed_files_count = 0
+    failed_files = []
     for file_path_str in absolute_results_paths:
         try:
-            file_path = Path(file_path_str) # Convert string path to Path object
+            file_path = Path(file_path_str)  # Convert string path to Path object
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
+                # --- Add check for nested 'results' key ---
+                if "results" not in data or not isinstance(data["results"], list):
+                    logger.error(
+                        f"JSON file {file_path_str} does not contain a 'results' list."
+                    )
+                    failed_files.append(file_path_str)
+                    continue  # Skip this file if structure is wrong
+                # --- End check ---
                 task_count = 0
-                for task in data:
+                for task in data[
+                    "results"
+                ]:  # Iterate over the list inside the 'results' key
                     task_count += 1
                     task_id = task.get("task_id")
                     prompt = task.get("prompt")
@@ -406,13 +451,33 @@ def load_and_process_results(absolute_results_paths):
                         )
         except FileNotFoundError:
             st.error(f"Results file not found: {file_path_str}")
+            logger.error(f"Results file not found: {file_path_str}")  # Added log
+            failed_files.append(file_path_str)
+            # Consider removing 'return None' if you want to process other files
             return None
         except json.JSONDecodeError:
             st.error(f"Error decoding JSON from file: {file_path_str}")
+            logger.error(
+                f"Error decoding JSON from file: {file_path_str}"
+            )  # Added log
+            failed_files.append(file_path_str)
+            # Consider removing 'return None' if you want to process other files
             return None
         except Exception as e:
             st.error(f"Error processing file {file_path_str}: {e}")
+            logger.error(f"Error processing file {file_path_str}: {e}")  # Added log
+            failed_files.append(file_path_str)
+        else:
+            processed_files_count += 1  # Increment count on success
 
+    # Log summary before returning
+    if failed_files:
+        logger.error(
+            f"Failed to process {len(failed_files)} files: {', '.join(failed_files)}"
+        )
+    logger.info(
+        f"Successfully processed {processed_files_count} result files out of {len(absolute_results_paths)}."
+    )
     return pd.DataFrame(all_results_data)
 
 
@@ -443,6 +508,8 @@ if action == "Run Evaluations":
 
     with col2:
         clear_cache_button = st.button("🧹 Clear LLM Cache")
+        if clear_cache_button:
+            logger.info("Clear LLM Cache button clicked.")
 
 elif action == "Recreate Graphs from Existing Data":
     data_dir = COGNIBENCH_ROOT / "data"
@@ -465,6 +532,9 @@ elif action == "Recreate Graphs from Existing Data":
     )
 
     if st.button("📊 Regenerate Graphs", disabled=not selected_folders):
+        logger.info(
+            f"Regenerate Graphs button clicked for folders: {selected_folders}"
+        )
         evaluation_results_paths = []
         for folder in selected_folders:
             folder_path = data_dir / folder
@@ -481,9 +551,13 @@ elif action == "Recreate Graphs from Existing Data":
                 evaluation_results_paths
             )
             st.success("Graphs regenerated successfully!")
+            logger.info("Graphs regenerated successfully.")
             st.rerun()
         else:
             st.error("No valid evaluation data found in selected folders.")
+            logger.warning(
+                "No valid evaluation data found in selected folders for graph regeneration."
+            )
 
 
 # --- Config Validation Helper ---
@@ -551,6 +625,9 @@ def validate_config(config: Dict[str, Any]) -> bool:
 # --- Function to run evaluation in a separate thread ---
 def run_evaluation_script(input_file_path, config_file_path, output_queue, stop_event):
     """Runs the batch evaluation script and puts output lines into a queue."""
+    logger.info(
+        f"Starting evaluation script for input: {input_file_path}, config: {config_file_path}"
+    )
     command = [
         sys.executable,
         str(RUN_BATCH_SCRIPT_PATH),
@@ -579,9 +656,8 @@ def run_evaluation_script(input_file_path, config_file_path, output_queue, stop_
                     output_queue.put("INFO: Evaluation stopped by user request.")
                     break
                 output_queue.put(line.strip())
-            process.stdout.close()
-
-        process.wait()
+        # stdout is automatically closed when the process exits and the loop finishes
+        process.wait()  # Wait for the process to complete
         output_queue.put(f"INFO: Process finished with exit code {process.returncode}")
 
     except FileNotFoundError:
@@ -754,6 +830,8 @@ if st.session_state.get("evaluation_running", False):
             st.session_state.current_file_index += 1  # Move to next file index
             break  # Exit while loop for this run
         else:
+            # Log every line received from the subprocess queue at DEBUG level
+            logger.debug(f"Queue Line: {line}")
             lines_processed_this_run.append(line)
             st.session_state.last_run_output.append(line)
 
@@ -775,31 +853,58 @@ if st.session_state.get("evaluation_running", False):
             elif "Evaluating task" in line:
                 progress_text.text(line)
 
-            # Parse for results file path
-            match = re.search(
-                r"Successfully combined ingested data and evaluations into (.*_final_results\.json)",
-                line,
-            )
-            if match:
-                # st.write(f"DEBUG (Log Check): Regex matched! Group 1: '{match.group(1).strip()}'") # Keep commented
-                results_path = match.group(1).strip()
+            # Parse for the explicit results file path marker
+            stripped_line = line.strip()
+            prefix = "FINAL_RESULTS_PATH: "
+            if stripped_line.startswith(prefix):
+                # Extract the absolute path after the prefix
+                raw_path = stripped_line[len(prefix) :].strip()
+                logger.info(
+                    f"Found potential results file line: '{raw_path}'"
+                )  # Log raw path
+                # Proceed with path processing using raw_path
+                results_path = raw_path  # Initialize with raw path
                 try:
-                    abs_path = Path(results_path)
+                    abs_path = Path(raw_path)
+                    # Check if it's already absolute and within the project root for consistency
                     if abs_path.is_absolute():
+                        logger.info(f"Path '{raw_path}' is absolute.")
                         if COGNIBENCH_ROOT in abs_path.parents:
+                            # Convert to relative if inside project root
                             results_path = str(abs_path.relative_to(COGNIBENCH_ROOT))
+                            logger.info(
+                                f"Converted absolute path to relative: '{results_path}'"
+                            )
                         else:
+                            # Keep absolute if outside project root (less likely but handle)
                             results_path = str(abs_path)
+                            logger.info(
+                                f"Keeping absolute path (outside project root): '{results_path}'"
+                            )
                     else:
-                        results_path = str(Path(results_path))
+                        # If it's relative, assume it's relative to COGNIBENCH_ROOT
+                        results_path = str(Path(raw_path))  # Keep as relative string
+                        logger.info(
+                            f"Path '{raw_path}' is relative, keeping as: '{results_path}'"
+                        )
 
+                    # Ensure we don't add duplicates
                     if results_path not in st.session_state.evaluation_results_paths:
-                        # st.write(f"DEBUG (Log Check): Appending path: '{results_path}'") # Keep commented
+                        logger.info(
+                            f"Appending processed path to list: '{results_path}'"
+                        )  # Log before append
                         st.session_state.evaluation_results_paths.append(results_path)
-                        progress_area.success(f"Found results file: {results_path}")
+                        progress_area.success(
+                            f"Found and stored results file path: {results_path}"
+                        )
+                    else:
+                        logger.info(
+                            f"Path '{results_path}' already in list, skipping append."
+                        )  # Log if skipped
+
                 except Exception as path_e:
                     progress_area.warning(
-                        f"Could not process results path '{match.group(1).strip()}': {path_e}"
+                        f"Could not process results path '{raw_path}': {path_e}"
                     )
             # else: # Keep commented
             #     if "_final_results.json" in line:
@@ -830,14 +935,35 @@ if st.session_state.get("evaluation_running", False):
             # Load results first to get counts
             results_df = None
             if st.session_state.evaluation_results_paths:
-                # Pass absolute paths directly to the loading function
-                results_df = load_and_process_results(st.session_state.evaluation_results_paths)
+                # Construct absolute paths from potentially relative paths stored during the run
+                absolute_paths = [
+                    str(COGNIBENCH_ROOT / p)
+                    for p in st.session_state.evaluation_results_paths
+                ]
+                logger.info(
+                    f"Attempting to load results after run from absolute paths: {absolute_paths}"
+                )
+                # Pass the absolute paths directly to the loading function
+                results_df = load_and_process_results(
+                    absolute_paths  # Use the constructed absolute paths
+                )
                 st.session_state.results_df = (
                     results_df  # Store loaded df in session state
                 )
+                # Add logging here to check if it was loaded before the rerun
+                logger.info(
+                    f"After evaluation run, results_df is None: {st.session_state.results_df is None}"
+                )
+                if st.session_state.results_df is not None:
+                    logger.info(
+                        f"Loaded DataFrame shape after run: {st.session_state.results_df.shape}"
+                    )
             else:
+                logger.warning(
+                    "No evaluation_results_paths found in session state after run."
+                )  # Added log
                 progress_area.warning(
-                    "Could not find paths to results files in the logs. Cannot calculate averages."
+                    "Could not find paths to results files in the logs. Cannot calculate averages or display graphs."  # Updated warning
                 )
 
             # Format duration human-readably
@@ -987,105 +1113,8 @@ if action == "Run Evaluations" and clear_cache_button:
 st.header("4. Results")
 
 
-# --- Function to load and process results ---
-@st.cache_data(show_spinner=False)  # Re-enable cache
-def load_and_process_results(results_paths):
-    """Loads data from _final_results.json files and processes into a DataFrame."""
-    all_results_data = []
-    for relative_path in results_paths:
-        try:
-            file_path = COGNIBENCH_ROOT / relative_path
-            with open(file_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                task_count = 0
-                for task in data:
-                    task_count += 1
-                    task_id = task.get("task_id")
-                    prompt = task.get("prompt")
-                    ideal_response = task.get("ideal_response")
-                    final_answer_gt = task.get("final_answer")
-                    metadata = task.get("metadata", {})
-                    subject = metadata.get("subject", "N/A")
-                    complexity = metadata.get("complexity", "N/A")
-
-                    eval_count = 0
-                    for evaluation in task.get("evaluations", []):
-                        eval_count += 1
-                        model_id = evaluation.get("model_id")
-                        model_response = evaluation.get("model_response")
-                        human_eval = evaluation.get("human_evaluation", {})
-                        judge_eval = evaluation.get("judge_evaluation", {})
-
-                        flat_judge_eval = {}
-                        if isinstance(judge_eval, dict):
-                            for key, value in judge_eval.items():
-                                if isinstance(value, dict):
-                                    if key == "parsed_rubric_scores":
-                                        for (
-                                            rubric_name,
-                                            rubric_details,
-                                        ) in value.items():
-                                            if isinstance(rubric_details, dict):
-                                                flat_judge_eval[
-                                                    f"judge_rubric_{rubric_name}_score"
-                                                ] = rubric_details.get("score")
-                                                flat_judge_eval[
-                                                    f"judge_rubric_{rubric_name}_justification"
-                                                ] = rubric_details.get("justification")
-                                            else:
-                                                flat_judge_eval[
-                                                    f"judge_rubric_{rubric_name}"
-                                                ] = rubric_details
-                                    else:
-                                        for sub_key, sub_value in value.items():
-                                            flat_judge_eval[
-                                                f"judge_{key}_{sub_key}"
-                                            ] = sub_value
-                                else:
-                                    flat_judge_eval[f"judge_{key}"] = value
-                        else:
-                            flat_judge_eval["judge_evaluation_raw"] = judge_eval
-
-                        aggregated_score = str(
-                            flat_judge_eval.get("judge_aggregated_score", "N/A")
-                        ).title()
-
-                        all_results_data.append(
-                            {
-                                "task_id": task_id,
-                                "model_id": model_id,
-                                "subject": subject,
-                                "complexity": complexity,
-                                "aggregated_score": aggregated_score,
-                                "prompt": prompt,
-                                "ideal_response": ideal_response,
-                                "model_response": model_response,
-                                "final_answer_ground_truth": final_answer_gt,
-                                **flat_judge_eval,
-                                "human_preference": human_eval.get("preference"),
-                                "human_rating": human_eval.get("rating"),
-                            }
-                        )
-                    # if eval_count == 0: # Keep commented unless debugging load function
-                    #     st.write(f"DEBUG (load_and_process_results):   No evaluations found for task {task.get('task_id')}")
-                # if task_count == 0: # Keep commented unless debugging load function
-                #     st.write(f"DEBUG (load_and_process_results): No tasks found in file {relative_path}")
-        except FileNotFoundError:
-            st.error(f"Results file not found: {relative_path}")
-            return None
-        except json.JSONDecodeError:
-            st.error(f"Error decoding JSON from file: {relative_path}")
-            return None
-        except Exception as e:
-            st.error(f"Error processing file {relative_path}: {e}")
-            return None
-
-    if not all_results_data:
-        return None
-
-    df = pd.DataFrame(all_results_data)
-    return df
-
+# Removed duplicate load_and_process_results function definition.
+# The primary definition starting at line 350 will be used.
 
 # --- Load data if results paths exist ---
 # Load data if evaluation is not running, paths exist, and data isn't already loaded
@@ -1101,7 +1130,13 @@ if (
         )
 
 # --- Display Results if DataFrame is loaded ---
+logger.info(
+    f"Checking session state before graph display. results_df is None: {st.session_state.get('results_df') is None}"
+)
 if st.session_state.results_df is not None:
+    logger.info(
+        "Results DataFrame found in session state. Proceeding with visualization."
+    )
     df = st.session_state.results_df
     st.success(f"Loaded {len(df)} evaluation results.")
     # Display evaluation duration if available
@@ -1151,18 +1186,28 @@ if st.session_state.results_df is not None:
 
     if filtered_df.empty:
         st.warning("No data matches the selected filters.")
+        logger.warning("Filtered DataFrame is empty. No graphs will be generated.")
     else:
+        logger.info(f"Filtered DataFrame shape: {filtered_df.shape}")
         # --- Overall Performance Chart (Using aggregated_score) ---
         st.subheader("Overall Performance by Model")
+        logger.info("Attempting to generate 'Overall Performance by Model' chart.")
         agg_score_col = "aggregated_score"
         if agg_score_col in filtered_df.columns and "model_id" in filtered_df.columns:
+            logger.info(
+                f"Required columns ('{agg_score_col}', 'model_id') found for performance chart."
+            )
             performance_counts = (
                 filtered_df.groupby(["model_id", agg_score_col])
                 .size()
                 .reset_index(name="count")
             )
+            logger.info(
+                f"Data for performance chart:\n{performance_counts.to_string()}"
+            )
             category_orders = {agg_score_col: ["Pass", "Fail", "None"]}
 
+            logger.info("Calling px.bar for performance chart.")
             fig_perf = px.bar(
                 performance_counts,
                 x="model_id",
@@ -1179,13 +1224,18 @@ if st.session_state.results_df is not None:
                 color_discrete_map=COLOR_MAP,
             )
             st.plotly_chart(fig_perf, use_container_width=True)
+            logger.info("Called st.plotly_chart for performance chart.")
         else:
+            logger.warning(
+                f"Skipping Overall Performance chart. Required columns ('model_id', '{agg_score_col}') not found."
+            )
             st.warning(
                 f"Could not generate Overall Performance chart. Required columns ('model_id', '{agg_score_col}') not found."
             )
 
         # --- Rubric Score Breakdown ---
         st.subheader("Rubric Score Analysis")
+        logger.info("Attempting to generate 'Rubric Score Analysis' charts.")
         rubric_cols = [
             col
             for col in filtered_df.columns
@@ -1193,6 +1243,9 @@ if st.session_state.results_df is not None:
         ]
 
         if rubric_cols and "model_id" in filtered_df.columns:
+            logger.info(
+                f"Found rubric columns: {rubric_cols} and 'model_id'. Proceeding with rubric charts."
+            )
             rubric_melted = filtered_df.melt(
                 id_vars=["model_id"],
                 value_vars=rubric_cols,
@@ -1212,6 +1265,7 @@ if st.session_state.results_df is not None:
                 .reset_index(name="count")
             )
 
+            logger.info("Calling px.bar for rubric distribution chart.")
             fig_rubric = px.bar(
                 rubric_counts,
                 x="rubric_criterion",
@@ -1239,10 +1293,14 @@ if st.session_state.results_df is not None:
                 lambda a: a.update(text=a.text.split("=")[-1])
             )
             st.plotly_chart(fig_rubric, use_container_width=True)
+            logger.info("Called st.plotly_chart for rubric distribution chart.")
 
             # --- Rubric Score Distribution per Model (New Graph) ---
             st.subheader("Rubric Score Distribution per Model")
-            # Reuse rubric_counts from previous step
+            logger.info(
+                "Attempting to generate 'Rubric Score Distribution per Model' chart."
+            )
+            logger.info("Calling px.bar for rubric distribution per model chart.")
             fig_rubric_model = px.bar(
                 rubric_counts,
                 x="model_id",  # X-axis is now model
@@ -1271,13 +1329,19 @@ if st.session_state.results_df is not None:
                 lambda a: a.update(text=a.text.split("=")[-1])
             )
             st.plotly_chart(fig_rubric_model, use_container_width=True)
+            logger.info(
+                "Called st.plotly_chart for rubric distribution per model chart."
+            )
             # --- Human Review Status ---
             st.subheader("Human Review Status")
+            logger.info("Attempting to generate 'Human Review Status' chart.")
             review_status_col = (
                 "judge_human_review_status"  # Assuming this is the column name
             )
             if (
                 review_status_col in filtered_df.columns
+                and "model_id"
+                in filtered_df.columns  # Added check for model_id consistency
                 and "model_id" in filtered_df.columns
             ):
                 # --- Create Table Data First (Before fillna) ---
@@ -1308,6 +1372,7 @@ if st.session_state.results_df is not None:
                 }  # Use actual values
 
                 # --- Create Graph ---
+                logger.info("Calling px.bar for human review status chart.")
                 fig_review = px.bar(
                     review_counts,  # Use counts derived from df_for_graph (with N/A)
                     x="model_id",
@@ -1329,11 +1394,15 @@ if st.session_state.results_df is not None:
                     textposition="outside"
                 )  # Position text labels outside bars
                 st.plotly_chart(fig_review, use_container_width=True)
+                logger.info("Called st.plotly_chart for human review status chart.")
 
                 # --- Human Review Explorer ---
                 st.subheader("Tasks Flagged for Human Review")
                 # Display the review_needed_df created *before* fillna
                 if not review_needed_df.empty:
+                    logger.info(
+                        f"Displaying {len(review_needed_df)} tasks flagged for human review."
+                    )
                     st.write(
                         f"Found {len(review_needed_df)} evaluations flagged for human review."
                     )
@@ -1362,6 +1431,9 @@ if st.session_state.results_df is not None:
                         )
                     )
                 else:
+                    logger.info(
+                        "No tasks flagged for human review based on current filters."
+                    )
                     st.info(
                         "No tasks flagged for human review based on current filters."
                     )
@@ -1398,6 +1470,9 @@ if st.session_state.results_df is not None:
                     review_comments = st.text_area("Review Comments:")
 
                     if st.button("Save Human Review"):
+                        logger.info(
+                            f"Saving human review for task {selected_review_task}."
+                        )
                         review_task_details["human_corrected_scores"] = corrected_scores
                         review_task_details["human_review_comments"] = review_comments
                         review_task_details["human_review_status"] = "Reviewed"
@@ -1408,17 +1483,21 @@ if st.session_state.results_df is not None:
                         # Here you would typically save these details back to your data storage
 
             else:
+                logger.warning(
+                    f"Skipping Human Review Status chart/explorer. Required columns ('model_id', '{review_status_col}') not found."
+                )
                 st.warning(
                     f"Could not generate Human Review Status chart/explorer. Required columns ('model_id', '{review_status_col}') not found."
                 )
         # This else corresponds to the `if rubric_cols and "model_id" in filtered_df.columns:` check
         else:
             st.warning(
-                "Could not generate Rubric Score Analysis / Human Review sections. Rubric score columns not found or 'model_id' missing."
+                "Skipping Rubric Score Analysis / Human Review sections. Rubric score columns not found or 'model_id' missing."
             )
 
         # --- Task-Level Explorer (Should be outside the rubric/review if/else, but inside the main results display else) ---
         st.subheader("Detailed Task-Level Explorer")
+        logger.info("Displaying 'Detailed Task-Level Explorer'.")
         selected_task = st.selectbox(
             "Select Task ID for Detailed View:", filtered_df["task_id"].unique()
         )

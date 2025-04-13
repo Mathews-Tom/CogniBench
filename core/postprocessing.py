@@ -19,7 +19,7 @@ import traceback
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 # Setup logger for this module *before* potential logging during imports
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('backend')
 
 
 # Attempt to import sympy for mathematical comparison
@@ -27,8 +27,13 @@ try:
     import sympy
 
     # Import specific sympy components needed
-    from sympy import SympifyError  # N for numerical eval
-    from sympy import Basic, N, simplify, sympify
+    from sympy import (
+        Basic,
+        N,
+        SympifyError,  # N for numerical eval
+        simplify,
+        sympify,
+    )
     from sympy.parsing.latex import parse_latex
 
     SYMPY_AVAILABLE = True
@@ -41,6 +46,8 @@ except ImportError:
         "SymPy library not found. Mathematical answer verification will fall back "
         "to basic string comparison. Install sympy (`pip install sympy`) for enhanced checking."
     )
+
+
 def safe_sympy_parse(expr_str: str) -> Optional[Basic]:
     """
     Safely parse a mathematical expression string using SymPy, handling empty or malformed inputs gracefully.
@@ -64,7 +71,6 @@ def safe_sympy_parse(expr_str: str) -> Optional[Basic]:
         except Exception as e:
             logger.warning(f"SymPy parsing failed: {str(e)}")
             return None
-
 
 
 # Type alias for aggregated score outcomes
@@ -108,9 +114,9 @@ def verify_final_answer(
     2.  Handles cases where either normalized answer is None (returns skipped).
     3.  If SymPy is available:
         a. Attempts to parse both normalized answers using `sympify` (standard)
-           and `parse_latex` (LaTeX fallback).
+            and `parse_latex` (LaTeX fallback).
         b. If both parse successfully, compares the expressions using `expr1.equals(expr2)`.
-           This checks for symbolic equivalence (e.g., x+y == y+x).
+            This checks for symbolic equivalence (e.g., x+y == y+x).
         c. If symbolic comparison fails or errors, logs a warning and proceeds to fallback.
     4.  If SymPy is not available OR SymPy parsing/comparison failed:
         a. Performs direct string comparison of the normalized answers.
@@ -124,7 +130,7 @@ def verify_final_answer(
     Returns:
         A tuple containing:
         - Verification result (Optional[bool]): True if match, False if mismatch,
-          None if skipped.
+            None if skipped.
         - Verification message (str): Describes outcome and method used.
     """
     norm_extracted = normalize_answer(extracted_answer)
@@ -148,30 +154,32 @@ def verify_final_answer(
         expr2 = safe_sympy_parse(norm_correct)
 
         if expr1 is None or expr2 is None:
-            logger.warning("Failed to parse one or both answers with SymPy. Falling back to string comparison.")
+            logger.warning(
+                "Failed to parse one or both answers with SymPy. Falling back to string comparison."
+            )
             match = None
             comparison_method = "String"
 
         # If both parsed successfully, compare them
         if expr1 is not None and expr2 is not None:
-                comparison_method = "SymPy"
-                # Use simplify and equals for robust comparison
-                try:
-                    # Alternative: simplify(expr1 - expr2) == 0
-                    # Using equals() handles symbolic equality better
-                    match = expr1.equals(expr2)
-                    logger.debug(
-                        "SymPy comparison: %s vs %s -> Match: %s", expr1, expr2, match
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "SymPy comparison failed: %s. Falling back to string comparison.",
-                        e,
-                        exc_info=True,
-                    )
-                    # Fallback to string comparison if SymPy comparison itself errors out
-                    match = None
-                    comparison_method = "String"  # Revert method
+            comparison_method = "SymPy"
+            # Use simplify and equals for robust comparison
+            try:
+                # Alternative: simplify(expr1 - expr2) == 0
+                # Using equals() handles symbolic equality better
+                match = expr1.equals(expr2)
+                logger.debug(
+                    "SymPy comparison: %s vs %s -> Match: %s", expr1, expr2, match
+                )
+            except Exception as e:
+                logger.warning(
+                    "SymPy comparison failed: %s. Falling back to string comparison.",
+                    e,
+                    exc_info=True,
+                )
+                # Fallback to string comparison if SymPy comparison itself errors out
+                match = None
+                comparison_method = "String"  # Revert method
 
         match = None  # Ensure match is None if SymPy fails
 
@@ -241,8 +249,12 @@ def aggregate_scores(
             might be needed.
     """
     # Initialize results structure
-    aggregation_rules = config.get("aggregation_settings", {}).get("aggregation_rules", {})
-    consistency_checks = config.get("aggregation_settings", {}).get("consistency_checks", {})
+    aggregation_rules = config.get("aggregation_settings", {}).get(
+        "aggregation_rules", {}
+    )
+    consistency_checks = config.get("aggregation_settings", {}).get(
+        "consistency_checks", {}
+    )
 
     results: Dict[str, Any] = {
         "aggregated_score": None,
@@ -287,7 +299,9 @@ def aggregate_scores(
         # --- Consistency Check: Trivial Justification ---
         # Flag if a 'No' or 'Partial' score has a very short justification.
         if consistency_checks.get("enable_trivial_justification_check", True):
-            trivial_length_threshold = consistency_checks.get("trivial_justification_length_threshold", MIN_JUSTIFICATION_LENGTH)
+            trivial_length_threshold = consistency_checks.get(
+                "trivial_justification_length_threshold", MIN_JUSTIFICATION_LENGTH
+            )
             if (
                 score_norm in ["no", "partial"]
                 and len(justification.strip()) <= trivial_length_threshold
@@ -322,9 +336,14 @@ def aggregate_scores(
     final_score: AggregatedScore
     if aggregation_rules.get("fail_if_any_no", True) and "no" in scores_found:
         final_score = "Fail"
-    elif aggregation_rules.get("partial_if_any_partial", True) and "partial" in scores_found:
+    elif (
+        aggregation_rules.get("partial_if_any_partial", True)
+        and "partial" in scores_found
+    ):
         final_score = "Partial"
-    elif aggregation_rules.get("pass_if_all_yes", True) and all(s == "yes" for s in scores_found):
+    elif aggregation_rules.get("pass_if_all_yes", True) and all(
+        s == "yes" for s in scores_found
+    ):
         final_score = "Pass"
     else:
         msg = f"Inconclusive aggregation state. Scores found: {scores_found}. Defaulting to Fail."
@@ -334,7 +353,9 @@ def aggregate_scores(
         final_score = "Fail"
 
     results["aggregated_score"] = final_score
-    logger.debug("Score aggregation complete using configurable rules. Result: %s", final_score)
+    logger.debug(
+        "Score aggregation complete using configurable rules. Result: %s", final_score
+    )
 
     return results
 
@@ -442,7 +463,9 @@ def perform_postprocessing(
     )
 
     if isinstance(evaluation_content, dict):
-        aggregation_results: Dict[str, Any] = aggregate_scores(evaluation_content, config)
+        aggregation_results: Dict[str, Any] = aggregate_scores(
+            evaluation_content, config
+        )
         postprocessing_results["aggregated_score"] = aggregation_results.get(
             "aggregated_score"
         )

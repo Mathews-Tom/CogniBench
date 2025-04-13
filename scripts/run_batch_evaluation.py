@@ -9,26 +9,26 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional  # Added imports
 
-# Assuming log_setup is in core directory relative to project root
-try:
-    from core.log_setup import setup_logging
-except ImportError:
-    # Fallback if running script directly and core isn't in path easily
-    try:
-        # Adjust path based on expected execution context
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from core.log_setup import setup_logging
-    except ImportError:
-        # If setup still fails, provide a basic config
-        logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+# --- Logging Setup ---
+# Configure logging directly here to ensure DEBUG level is set for the main script
+# This bypasses potential conflicts with setup_logging calls elsewhere.
+# --- Logging Setup ---
+# Add project root to sys.path to allow absolute import of core modules
+APP_DIR = Path(__file__).parent
+COGNIBENCH_ROOT = APP_DIR.parent
+if str(COGNIBENCH_ROOT) not in sys.path:
+    sys.path.insert(0, str(COGNIBENCH_ROOT))
 
-        def setup_logging():
-            pass  # No-op function
+from core.log_setup import setup_logging
 
+# Setup logging using the centralized function
+# Pass DEBUG level specifically for this verbose script if needed
+setup_logging(log_level=logging.DEBUG)
+logger = logging.getLogger('backend')
+logger.info("Logging setup complete via core.log_setup.")
+# --- End Logging Setup ---
 
-# Get logger for this module
-logger = logging.getLogger(__name__)
-
+# Removed redundant/commented out logging setup attempts
 
 def run_command(command_list):
     """Runs a command using subprocess and handles errors."""
@@ -168,7 +168,8 @@ def validate_config(config: Dict[str, Any]) -> bool:
 
 
 if __name__ == "__main__":
-    setup_logging()  # Setup logging
+    # Logging is configured via basicConfig at the top of the script
+    # setup_logging() # Removed call
     logger.info("Starting end-to-end batch evaluation script.")
     parser = argparse.ArgumentParser(
         description="Run end-to-end CogniBench evaluation from a raw batch file."
@@ -400,7 +401,11 @@ if __name__ == "__main__":
             )
 
             # Ensure evaluations_list is loaded if Step 3 was skipped or failed partially
-            if "evaluations_list" not in locals():
+            evaluations_list = []  # Initialize in case loading fails
+            # The check 'if "evaluations_list" not in locals():' was removed as it was preventing loading.
+            # Always attempt to load the formatted file created in Step 3.
+            # This block loads the formatted evaluations file. It needs to be indented.
+            if json_path.is_file():  # Check if formatted file exists
                 logger.debug("Loading formatted evaluations from %s", json_path)
                 try:
                     with json_path.open("r", encoding="utf-8") as f:
@@ -411,12 +416,27 @@ if __name__ == "__main__":
                         json_path,
                         e,
                     )
-                    evaluations_list = []  # Ensure it's an empty list if loading fails
+                    # evaluations_list remains empty
+            else:
+                logger.error(
+                    "Formatted evaluation file not found at %s. Cannot combine results.",
+                    json_path,
+                )
+                # evaluations_list remains empty
 
             grouped_results_map = {}  # Use a dict keyed by task_id to group results
 
+            # --- Initialize Summary Statistics ---
+            total_structuring_calls = 0
+            total_judging_calls = 0
+            total_eval_time = 0.0
+            total_evaluations_processed = 0
+            model_times = {}  # {model_id: total_time}
+            model_counts = {}  # {model_id: count}
+
             logger.debug("Processing %d evaluation results...", len(evaluations_list))
             for evaluation in evaluations_list:
+                total_evaluations_processed += 1
                 task_id = evaluation.get("task_id")
                 model_id = evaluation.get("model_id")
                 evaluation_id = evaluation.get("evaluation_id")
@@ -427,7 +447,22 @@ if __name__ == "__main__":
                         evaluation_id,
                     )
                     continue
+                # Removed debug log for task_id/model_id
 
+                # --- Accumulate Metrics ---
+                struct_calls = evaluation.get("structuring_api_calls", 0) or 0
+                judge_calls = evaluation.get("judging_api_calls", 0) or 0
+                eval_time = evaluation.get("total_time_seconds", 0.0) or 0.0
+
+                total_structuring_calls += struct_calls
+                total_judging_calls += judge_calls
+                total_eval_time += eval_time
+
+                if model_id:
+                    model_times[model_id] = model_times.get(model_id, 0.0) + eval_time
+                    model_counts[model_id] = model_counts.get(model_id, 0) + 1
+
+                # --- Get Original Task Data ---
                 original_task_data = ingested_data_map.get(task_id)
                 if not original_task_data:
                     logger.warning(
@@ -436,6 +471,7 @@ if __name__ == "__main__":
                         evaluation_id,
                     )
                     continue
+                # Removed debug log for original task data lookup
 
                 # If first time seeing this task_id, initialize the top-level structure
                 if task_id not in grouped_results_map:
@@ -443,10 +479,9 @@ if __name__ == "__main__":
                         "task_id": task_id,
                         "prompt": original_task_data.get("prompt"),
                         "ideal_response": original_task_data.get("ideal_response"),
-                        "final_answer": original_task_data.get(
-                            "final_answer"
-                        ),  # Use renamed key final_answer
+                        "final_answer": original_task_data.get("final_answer"),
                         "metadata": original_task_data.get("metadata", {}),
+                        "structured_ideal_response": None,  # Placeholder
                         "evaluations": [],
                     }
 
@@ -460,27 +495,38 @@ if __name__ == "__main__":
                 human_evaluation_data = {}
                 for human_eval in original_task_data.get("human_evaluations", []):
                     if human_eval.get("model_id") == model_id:
-                        # Exclude model_id itself from the human_evaluation object
                         human_evaluation_data = {
                             k: v for k, v in human_eval.items() if k != "model_id"
                         }
                         break
 
-                # Construct the judge_evaluation object from the current evaluation record
-                # Exclude fields already present at top level or handled separately
+                # --- Extract structured_ideal_response and add to excluded keys ---
+                structured_ideal_response = evaluation.get("structured_ideal_response")
+                if structured_ideal_response is not None:
+                    # Store it at the task level
+                    grouped_results_map[task_id]["structured_ideal_response"] = (
+                        structured_ideal_response
+                    )
+
+                # Construct the judge_evaluation object
                 excluded_judge_keys = {
                     "task_id",
                     "model_id",
                     "response_id",
-                    "ideal_response_id",  # Already snake_case from conversion
-                    "raw_judge_output",  # Already snake_case and removed earlier
-                    # Add any other potential non-snake_case keys from judge output if known
+                    "ideal_response_id",
+                    "raw_judge_output",
+                    "structured_ideal_response",  # Exclude this
+                    # Exclude new metrics
+                    "structuring_api_calls",
+                    "judging_api_calls",
+                    "total_time_seconds",
                 }
                 judge_evaluation_data = {
                     k: v for k, v in evaluation.items() if k not in excluded_judge_keys
                 }
 
-                # Append the combined evaluation details for this model to the task's list
+                # Append the combined evaluation details
+                # Removed debug log before appending evaluation
                 grouped_results_map[task_id]["evaluations"].append(
                     {
                         "model_id": model_id,
@@ -489,28 +535,71 @@ if __name__ == "__main__":
                         "judge_evaluation": judge_evaluation_data,
                     }
                 )
+            # --- End of loop processing evaluations ---
 
-            # Convert the grouped results map values into a list for the final JSON output
+            # Convert the grouped results map values into a list
+            # Removed debug log for final map size
             final_results_list = list(grouped_results_map.values())
 
-            # Write the final combined results
-            logger.debug("Writing final combined results to %s", final_results_path)
+            # --- Calculate Final Summary Statistics ---
+            num_tasks = len(grouped_results_map)
+            avg_time_per_task = total_eval_time / num_tasks if num_tasks > 0 else 0.0
+            avg_time_per_evaluation = (
+                total_eval_time / total_evaluations_processed
+                if total_evaluations_processed > 0
+                else 0.0
+            )
+
+            avg_time_per_model = {}
+            for model_id, total_time in model_times.items():
+                count = model_counts.get(model_id, 0)
+                avg_time_per_model[model_id] = total_time / count if count > 0 else 0.0
+
+            summary_stats = {
+                "batch_id": batch_stem,
+                "timestamp": timestamp,
+                "total_tasks_processed": num_tasks,
+                "total_evaluations_processed": total_evaluations_processed,
+                "total_structuring_api_calls": total_structuring_calls,
+                "total_judging_api_calls": total_judging_calls,
+                "total_evaluation_time_seconds": round(total_eval_time, 2),
+                "average_time_per_task_seconds": round(avg_time_per_task, 2),
+                "average_time_per_evaluation_seconds": round(
+                    avg_time_per_evaluation, 2
+                ),
+                "average_time_per_model_seconds": {
+                    model: round(avg, 2) for model, avg in avg_time_per_model.items()
+                },
+                "models_evaluated": list(model_counts.keys()),
+            }
+
+            # --- Create Final Output Object with Summary ---
+            final_output = {"summary": summary_stats, "results": final_results_list}
+
+            # Write the final combined results including the summary
+            logger.debug(
+                "Writing final combined results with summary to %s", final_results_path
+            )
             with final_results_path.open("w", encoding="utf-8") as outfile:
-                json.dump(final_results_list, outfile, indent=2, ensure_ascii=False)
+                json.dump(final_output, outfile, indent=2, ensure_ascii=False)
 
             logger.info(
-                "Successfully combined ingested data and evaluations into %s",
+                "Successfully combined results and wrote final output with summary to %s",
                 final_results_path,
             )
-            # Print the path to stdout for the Streamlit app to capture
-            print(
-                f"Successfully combined ingested data and evaluations into {final_results_path}"
-            )
-            logger.debug("--- Finished Step 4: Combining Results ---")
+            # Print the absolute path to stdout for the Streamlit app
+            print(f"FINAL_RESULTS_PATH: {final_results_path.resolve()}")
+            # Print the path to stdout for the Streamlit app to capture (if needed)
+            # print(f"Successfully combined results into {final_results_path}") # Optional
 
+        # Correctly indented except blocks for the try starting at line 391
         except IOError as e:
             logger.error("File I/O Error during result combination: %s", e)
         except Exception as e:
             logger.exception("An unexpected error occurred during result combination.")
 
+        # Correctly indented debug log for finishing Step 4, still within the 'else' block
+        logger.debug("--- Finished Step 4: Combining Results ---")
+
+    # Correctly indented final log message at the end of the main script block
     logger.info("--- End-to-End Evaluation Complete ---")

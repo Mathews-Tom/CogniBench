@@ -15,7 +15,7 @@ from openai import OpenAI, OpenAIError
 from .base import BaseLLMClient
 
 # Get logger for this module
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('backend')
 
 # --- Cache Setup ---
 CACHE_FILENAME = "openai_cache"

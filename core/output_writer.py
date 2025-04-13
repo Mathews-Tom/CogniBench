@@ -21,7 +21,7 @@ DATA_DIR = PROJECT_ROOT / "data"
 DEFAULT_EVALUATIONS_FILE_PATH = DATA_DIR / "evaluations.jsonl"  # Default path
 
 # Get logger for this module
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('backend')
 
 
 def save_evaluation_result(
@@ -43,8 +43,12 @@ def save_evaluation_result(
     model_id: Optional[str] = None,
     output_jsonl_path: Optional[Path] = None,
     parsing_error: Optional[str] = None,
-    structured_model_response: Optional[Dict[str, Any]] = None,
-    structured_ideal_response: Optional[Dict[str, Any]] = None,
+    structured_model_response: Optional[Dict[str, Any]] = None,  # Now an object
+    structured_ideal_response: Optional[str] = None,  # Still a string here
+    # New metrics
+    structuring_api_calls: Optional[int] = None,
+    judging_api_calls: Optional[int] = None,
+    total_time_seconds: Optional[float] = None,
 ) -> Dict[str, Union[str, None]]:  # Return type indicates status and maybe message/id
     """Appends a structured evaluation result record to a JSONL file.
 
@@ -74,6 +78,12 @@ def save_evaluation_result(
             to the project root.
         parsing_error: An optional string containing the error message if judge
             response parsing failed. Defaults to None.
+        structured_model_response: Optional dictionary containing the structuring model name,
+            prompt, and response string.
+        structured_ideal_response: Optional string containing the structured ideal response.
+        structuring_api_calls: Optional integer count of API calls to the structuring model.
+        judging_api_calls: Optional integer count of API calls to the judging model.
+        total_time_seconds: Optional float representing the total time taken for the evaluation.
 
     Returns:
         A dictionary indicating the outcome of the save operation:
@@ -113,8 +123,8 @@ def save_evaluation_result(
             "verification_message": verification_message,  # Added field
             "needs_human_review": needs_human_review,
             "review_reasons": review_reasons or [],  # Ensure list, even if None
-            "structured_model_response": structured_model_response,
-            "structured_ideal_response": structured_ideal_response,
+            "structured_model_response": structured_model_response,  # Store the object
+            "structured_ideal_response": structured_ideal_response,  # Store the string
             "parsing_error": parsing_error,  # Include parsing error if present
             # --- Human Review Fields (Initialized) ---
             "human_review_status": "Needs Review"
@@ -126,6 +136,10 @@ def save_evaluation_result(
             "human_review_comments": None,
             # --- Timestamp ---
             "created_at": datetime.utcnow().isoformat() + "Z",  # ISO 8601 format UTC
+            # --- New Metrics ---
+            "structuring_api_calls": structuring_api_calls,
+            "judging_api_calls": judging_api_calls,
+            "total_time_seconds": total_time_seconds,
         }
 
         # Convert the new record to a JSON string representation
