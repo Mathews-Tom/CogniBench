@@ -7,7 +7,7 @@ import sys
 import time  # For timestamp
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional  # Added imports
+from typing import Any, Dict, List, Optional, Union # Added imports, Union, List
 
 # --- Logging Setup ---
 # Configure logging directly here to ensure DEBUG level is set for the main script
@@ -27,6 +27,79 @@ setup_logging(log_level=logging.DEBUG)
 logger = logging.getLogger('backend')
 logger.info("Logging setup complete via core.log_setup.")
 # --- End Logging Setup ---
+
+
+# --- Helper Function for Parsing Embedded JSON ---
+def _parse_json_string(
+    json_string: Optional[str], task_id: str, field_name: str
+) -> Union[Dict[str, Any], List[Any], str, None]:
+    """Attempts to parse a JSON string, potentially embedded in markdown code fences.
+
+    Args:
+        json_string: The string value to parse.
+        task_id: The task ID for logging context.
+        field_name: The name of the field being parsed for logging context.
+
+    Returns:
+        The parsed Python object (dict or list) if successful,
+        otherwise the original string. Returns None if input is None.
+    """
+    if json_string is None:
+        return None
+    if not isinstance(json_string, str):
+        logger.warning(
+            "Task [%s]: Field '%s' was not a string, skipping parsing. Value: %s",
+            task_id,
+            field_name,
+            json_string,
+        )
+        return json_string # Return the original non-string value
+
+    # Attempt to remove markdown fences (```json ... ``` or ``` ... ```)
+    extracted_string = json_string.strip()
+    if extracted_string.startswith("```json"):
+        extracted_string = extracted_string[len("```json") :]
+    elif extracted_string.startswith("```"):
+         extracted_string = extracted_string[len("```") :]
+
+    if extracted_string.endswith("```"):
+        extracted_string = extracted_string[: -len("```")]
+
+    extracted_string = extracted_string.strip()
+
+    # Handle potential escape sequences common in LLM outputs
+    # Example: Convert \" to " - Add more rules if needed
+    # extracted_string = extracted_string.replace('\\"', '"')
+    # Note: json.loads usually handles standard JSON escapes correctly.
+    # Be cautious adding custom replacements that might break valid JSON.
+
+    try:
+        # Attempt to parse the extracted string
+        parsed_data = json.loads(extracted_string)
+        # Optional: Log success at DEBUG level if needed
+        # logger.debug("Task [%s]: Successfully parsed JSON for field '%s'.", task_id, field_name)
+        return parsed_data
+    except json.JSONDecodeError as e:
+        logger.warning(
+            "Task [%s]: Failed to parse JSON for field '%s'. Error: %s. Keeping original string: %s",
+            task_id,
+            field_name,
+            e,
+            json_string, # Log the original string that failed
+            exc_info=False, # Don't log full traceback for expected errors
+        )
+        return json_string # Return the original string on failure
+    except Exception as e: # Catch unexpected errors during parsing
+        logger.error(
+            "Task [%s]: Unexpected error parsing JSON for field '%s'. Error: %s. Keeping original string: %s",
+            task_id,
+            field_name,
+            e,
+            json_string,
+            exc_info=True, # Log traceback for unexpected errors
+        )
+        return json_string # Return the original string on failure
+
 
 # Removed redundant/commented out logging setup attempts
 
@@ -471,6 +544,20 @@ if __name__ == "__main__":
                         evaluation_id,
                     )
                     continue
+
+                # --- Parse JSON Strings from Evaluation Data ---
+                # Parse structured_ideal_response (will be assigned later if needed)
+                parsed_ideal_response = _parse_json_string(
+                    evaluation.get("structured_ideal_response"),
+                    task_id,
+                    "structured_ideal_response",
+                )
+                # Parse structured_model_response
+                parsed_model_response = _parse_json_string(
+                    evaluation.get("structured_model_response"),
+                    task_id,
+                    "structured_model_response",
+                )
                 # Removed debug log for original task data lookup
 
                 # If first time seeing this task_id, initialize the top-level structure
@@ -481,7 +568,7 @@ if __name__ == "__main__":
                         "ideal_response": original_task_data.get("ideal_response"),
                         "final_answer": original_task_data.get("final_answer"),
                         "metadata": original_task_data.get("metadata", {}),
-                        "structured_ideal_response": None,  # Placeholder
+                        "structured_ideal_response": None,  # Placeholder, will be populated by parsed value
                         "evaluations": [],
                     }
 
@@ -500,12 +587,12 @@ if __name__ == "__main__":
                         }
                         break
 
-                # --- Extract structured_ideal_response and add to excluded keys ---
-                structured_ideal_response = evaluation.get("structured_ideal_response")
-                if structured_ideal_response is not None:
-                    # Store it at the task level
+                # --- Use parsed structured_ideal_response ---
+                # The parsing happens earlier (around line 550) creating parsed_ideal_response
+                if parsed_ideal_response is not None and grouped_results_map[task_id].get("structured_ideal_response") is None:
+                    # Store the parsed version at the task level if not already set
                     grouped_results_map[task_id]["structured_ideal_response"] = (
-                        structured_ideal_response
+                        parsed_ideal_response
                     )
 
                 # Construct the judge_evaluation object
@@ -515,7 +602,8 @@ if __name__ == "__main__":
                     "response_id",
                     "ideal_response_id",
                     "raw_judge_output",
-                    "structured_ideal_response",  # Exclude this
+                    "structured_ideal_response",  # Exclude this (original string key)
+                    "structured_model_response", # Exclude this (original string key)
                     # Exclude new metrics
                     "structuring_api_calls",
                     "judging_api_calls",
@@ -530,9 +618,12 @@ if __name__ == "__main__":
                 grouped_results_map[task_id]["evaluations"].append(
                     {
                         "model_id": model_id,
-                        "model_response": model_response_text,
+                        # Use the parsed structured response instead of the raw text
+                        "structured_model_response": parsed_model_response,
                         "human_evaluation": human_evaluation_data,
                         "judge_evaluation": judge_evaluation_data,
+                        # Optionally keep raw text if needed, rename key e.g., "raw_model_response_text"
+                        # "raw_model_response_text": model_response_text,
                     }
                 )
             # --- End of loop processing evaluations ---
