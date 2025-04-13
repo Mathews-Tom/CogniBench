@@ -28,12 +28,12 @@ import yaml
 from core.log_setup import setup_logging  # Reverted to absolute import
 
 # Setup logging for the Streamlit app
-logger = logging.getLogger('streamlit')
+logger = logging.getLogger("streamlit")
 if "logging_setup_complete" not in st.session_state:
     setup_logging()  # Call the setup function
     st.session_state.logging_setup_complete = True  # Mark as done
     # Get the specific logger for streamlit
-    logger = logging.getLogger('streamlit')
+    logger = logging.getLogger("streamlit")
     logger.info("Initial logging setup complete.")  # Log only once
     logger.info("Streamlit app started.")  # Move this here
 # --- Constants ---
@@ -457,9 +457,7 @@ def load_and_process_results(absolute_results_paths):
             return None
         except json.JSONDecodeError:
             st.error(f"Error decoding JSON from file: {file_path_str}")
-            logger.error(
-                f"Error decoding JSON from file: {file_path_str}"
-            )  # Added log
+            logger.error(f"Error decoding JSON from file: {file_path_str}")  # Added log
             failed_files.append(file_path_str)
             # Consider removing 'return None' if you want to process other files
             return None
@@ -532,9 +530,7 @@ elif action == "Recreate Graphs from Existing Data":
     )
 
     if st.button("📊 Regenerate Graphs", disabled=not selected_folders):
-        logger.info(
-            f"Regenerate Graphs button clicked for folders: {selected_folders}"
-        )
+        logger.info(f"Regenerate Graphs button clicked for folders: {selected_folders}")
         evaluation_results_paths = []
         for folder in selected_folders:
             folder_path = data_dir / folder
@@ -698,16 +694,15 @@ if (
     st.rerun()  # Rerun to disable button and show progress area
 
 if st.session_state.get("evaluation_running", False):
-    st.header("Evaluation Progress ⏳")
-    progress_area = st.container()
+    progress_area = st.container()  # Removed header
     stop_button = st.button("🛑 Stop Processing", type="primary")
     if stop_button:
         st.session_state.stop_requested = True
     log_expander = st.expander("Show Full Logs", expanded=False)
     log_placeholder = log_expander.empty()
 
-    with st.spinner("Evaluations running... Please wait."):
-        progress_bar = progress_area.progress(0.0)
+    with st.spinner("Evaluation Progress..."):  # Updated spinner text
+        # Removed progress bar
         progress_text = progress_area.text("Starting evaluation...")
         log_placeholder.code(
             "\n".join(st.session_state.last_run_output[-1000:]), language="log"
@@ -842,7 +837,7 @@ if st.session_state.get("evaluation_running", False):
                 total_tasks_backend = int(progress_match.group(2))
                 if total_tasks_backend > 0:
                     progress_percentage = float(current_task) / total_tasks_backend
-                    progress_bar.progress(progress_percentage)
+                    # Removed progress bar update
                     progress_text.text(
                         f"Evaluating Task {current_task}/{total_tasks_backend}..."
                     )
