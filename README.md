@@ -40,7 +40,7 @@ Evaluating LLMs on complex reasoning tasks, especially in specialized fields lik
 * **Data Management:** Structured way to handle prompts, ideal responses, model responses, and evaluation results. Output files are organized into timestamped subdirectories for each batch run.
 * **Batch Processing:** Includes scripts for ingesting raw data and running evaluations on entire batches.
 * **Combined Results:** Generates a final JSON file grouping results by task for easier comparison across models.
-* **Configurable Logging:** Timestamped log files and configurable console output levels. Includes detailed logs for structuring and judging LLM calls within the core workflow.
+* **Configurable Logging:** Timestamped log files and configurable console output levels. Includes detailed logs for structuring and judging LLM calls within the core workflow. Logs are now stored in timestamped directories (e.g., `logs/YYYYMMDD_HHMM/`) with separate files for backend (`backend.log`) and Streamlit (`streamlit.log`) operations.
 * **API Interface:** (Optional) Provides an API for programmatic interaction (loads config on startup).
 * **Streamlit UI:** A user-friendly interface (`streamlit_app/`) for uploading batch files, configuring the judge (provider, model, template, API key), viewing the configuration summary and files (selected prompt template, `config.yaml`) in expandable sections, running evaluations (with dynamic spinner, progress bar, live log output, and a "Stop Processing" button to gracefully interrupt evaluations), viewing persistent logs, and visualizing results (overall performance, rubric breakdown per criterion/model, human review status counts, and explorers for all tasks and those needing review). Additionally, introduced a global `COLOR_MAP` constant for consistent and clear graph coloring across the application.
 
@@ -64,8 +64,10 @@ CogniBench/
 │       ├── Batch-XXX_evaluations.jsonl         # Detailed evaluation results (JSON Lines)
 │       ├── Batch-XXX_evaluations_formatted.json # Formatted JSON version of evaluations
 │       └── Batch-XXX_final_results.json        # Combined ingested data + evaluations, grouped by task
-├── logs/                 # Log files
-│   └── CogniBench_YYYYMMDD_HHMM.log # Timestamped log file for each run
+├── logs/                 # Log files directory
+│   └── YYYYMMDD_HHMM/    # Timestamped directory for each run
+│       ├── backend.log   # Logs from core scripts, API, etc.
+│       └── streamlit.log # Logs specifically from the Streamlit UI
 ├── prompts/              # Raw prompt files (e.g., judge prompt templates)
 ├── scripts/              # Utility and execution scripts
 │   ├── ingest_rlhf_data.py       # Script to convert raw data to CogniBench format

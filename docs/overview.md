@@ -214,7 +214,9 @@ sequenceDiagram
       * `*_evaluations.jsonl`: Detailed judge evaluation results for each model response (append-friendly, `snake_case` keys).
       * `*_evaluations_formatted.json`: Pretty-printed JSON array version of the `.jsonl` file (excluding raw judge output, `snake_case` keys).
       * `*_final_results.json`: Final aggregated output, grouping results by `task_id` and combining ingested data (`prompt`, `ideal_response`, `final_answer`, `metadata`, `human_evaluations`) with judge evaluations for each model (`snake_case` keys).
-    * `logs/CogniBench_YYYYMMDD_HHMM.log`: Timestamped log file containing detailed execution information (DEBUG level and above), including specific logs for structuring and judging call initiation. Console output is typically limited to WARNING level and above, plus `tqdm` progress bars.
+    * `logs/YYYYMMDD_HHMM/`: Timestamped directory for each run. Contains detailed execution information (DEBUG level and above), including specific logs for structuring and judging call initiation. Console output is typically limited to WARNING level and above, plus `tqdm` progress bars.
+      * `backend.log`: Logs from core scripts, API, batch processing, etc.
+      * `streamlit.log`: Logs specifically from the Streamlit UI operations.
 * **G. Workflow Orchestrator:**
   * **Function:** Manages the execution flow of the pipeline steps (A -> B -> C -> D -> E).
   * **Technology:** Python scripts (`scripts/run_batch_evaluation.py`, `run_single_evaluation.py`). `run_batch_evaluation.py` orchestrates the end-to-end process including ingestion and evaluation steps.
