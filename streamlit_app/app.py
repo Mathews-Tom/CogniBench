@@ -123,7 +123,7 @@ AVAILABLE_MODELS = {
 
 st.header("Configure Models and Prompts")
 
-with st.expander("Model Configurations", expanded=True):
+with st.expander("Model Configurations", expanded=False):
     col_structuring, col_judging = st.columns(2)
 
 with col_structuring:
@@ -536,7 +536,7 @@ elif action == "Recreate Graphs from Existing Data":
     st.header("Recreate Graphs from Existing Data")
 
 if action == "Run Evaluations":
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([14, 2])  # Reverted to user's preferred ratio
 
     with col1:
         run_button = st.button(
@@ -545,6 +545,7 @@ if action == "Run Evaluations":
             disabled=not uploaded_files
             or not st.session_state.selected_template_name
             or st.session_state.get("evaluation_running", False),
+            use_container_width=True, # Make button fill column
         )
 
     with col2:
@@ -1023,7 +1024,9 @@ if st.session_state.get("evaluation_running", False):
                     parts.append(f"{hours} hr{'s' if hours != 1 else ''}")
                 if minutes > 0:
                     parts.append(f"{minutes} min{'s' if minutes != 1 else ''}")
-                if seconds > 0 or not parts: # Show seconds if > 0 or if it's the only unit
+                if (
+                    seconds > 0 or not parts
+                ):  # Show seconds if > 0 or if it's the only unit
                     parts.append(f"{seconds} s")
                 duration_display_str = ", ".join(parts) if parts else "0 s"
             st.session_state.eval_duration_str = duration_display_str
@@ -1096,24 +1099,22 @@ if st.session_state.get("evaluation_running", False):
             )
             judging_calls_display = summary_data.get("total_judging_api_calls", "N/A")
 
-            # Row 1
-            col1, col2 = progress_area.columns(2)
-            col1.metric(
-                "Total Tasks Processed", total_tasks_display
-            )  # Updated label and variable
-            col2.metric("Total Evaluation Duration", total_duration_display)
+            # --- Display Averages and Overall Stats in Expander ---
+            with progress_area.expander("Overall Run Statistics"):  # Renamed expander
+                # Row 1 (Moved Inside)
+                col1, col2 = st.columns(2)
+                col1.metric("Total Tasks Processed", total_tasks_display)
+                col2.metric("Total Evaluation Duration", total_duration_display)
 
-            # Row 2
-            col3, col4, col5 = progress_area.columns(3)
-            # Keep 3 columns, but update the first metric
-            col3.metric(
-                "Total Evaluations Completed", total_evals_display
-            )  # Use evaluations count and new label
-            col4.metric("Total Structuring Calls", structuring_calls_display)
-            col5.metric("Total Judging Calls", judging_calls_display)
+                # Row 2 (Moved Inside)
+                col3, col4, col5 = st.columns(3)
+                col3.metric("Total Evaluations Completed", total_evals_display)
+                col4.metric("Total Structuring Calls", structuring_calls_display)
+                col5.metric("Total Judging Calls", judging_calls_display)
 
-            # --- Display Averages in Expander ---
-            with progress_area.expander("Average Statistics"):
+                st.markdown("---")  # Add separator
+
+                # Averages (Keep Inside)
                 # Prepare per-model average time string
                 avg_time_per_model_dict = summary_data.get(
                     "average_time_per_model_seconds", {}
@@ -1347,7 +1348,7 @@ if st.session_state.get("results_df") is not None:
             parts.append(f"{hours} hr{'s' if hours != 1 else ''}")
         if minutes > 0:
             parts.append(f"{minutes} min{'s' if minutes != 1 else ''}")
-        if seconds > 0 or not parts: # Show seconds if > 0 or if it's the only unit
+        if seconds > 0 or not parts:  # Show seconds if > 0 or if it's the only unit
             parts.append(f"{seconds} s")
         total_duration_display = ", ".join(parts) if parts else "0 s"
     # Use correct key from JSON
@@ -1361,22 +1362,19 @@ if st.session_state.get("results_df") is not None:
     judging_calls_display = summary_data.get("total_judging_api_calls", "N/A")
 
     st.subheader("Evaluation Summary")
+    # --- Display Key Summary Metrics Directly ---
     # Row 1
     col1, col2 = st.columns(2)
-    col1.metric(
-        "Total Tasks Processed", total_tasks_display
-    )  # Updated label and variable
+    col1.metric("Total Tasks Processed", total_tasks_display)
     col2.metric("Total Evaluation Duration", total_duration_display)
 
     # Row 2
     col3, col4, col5 = st.columns(3)
-    col3.metric(
-        "Total Evaluations Processed", total_evals_display
-    )  # Use evaluations count and new label
+    col3.metric("Total Evaluations Processed", total_evals_display)
     col4.metric("Total Structuring Calls", structuring_calls_display)
     col5.metric("Total Judging Calls", judging_calls_display)
 
-    # --- Display Averages in Expander (Loaded Data) ---
+    # --- Display Average Stats in Expander (Loaded Data) ---
     # Calculate averages using summary_data and df
     avg_time_per_task_str = "N/A"
     avg_time_per_model_eval_str = "N/A"
@@ -1402,7 +1400,8 @@ if st.session_state.get("results_df") is not None:
                 f"{avg_time_per_model_eval:.2f}s"  # Use 's' suffix
             )
 
-    with st.expander("Average Statistics"):
+    with st.expander("Overall Run Statistics"):  # Renamed expander
+        # Averages (Only these remain inside)
         # Prepare per-model average time string
         avg_time_per_model_dict = summary_data.get("average_time_per_model_seconds", {})
         logger.info(f"Per-model avg dict: {avg_time_per_model_dict}")  # Add logging
@@ -1423,8 +1422,12 @@ if st.session_state.get("results_df") is not None:
 """
         )
 
-    # --- Enhanced Filters ---
-    st.sidebar.header("Enhanced Filters")
+    # --- Enhanced Filters (Moved to Main Area) ---
+    # Note: Filter definitions moved below, before application
+
+
+    # --- Enhanced Filters (Moved from Sidebar) ---
+    st.subheader("Enhanced Filters")  # Add a subheader for the main area section
     available_models = (
         df["model_id"].unique().tolist() if "model_id" in df.columns else []
     )
@@ -1438,20 +1441,22 @@ if st.session_state.get("results_df") is not None:
         else []
     )
 
-    selected_models = st.sidebar.multiselect(
+    # Use st.multiselect instead of st.sidebar.multiselect
+    selected_models = st.multiselect(
         "Filter by Model:", available_models, default=available_models
     )
-    selected_tasks = st.sidebar.multiselect(
+    selected_tasks = st.multiselect(
         "Filter by Task ID:", available_tasks, default=available_tasks
     )
-    selected_subjects = st.sidebar.multiselect(
+    selected_subjects = st.multiselect(
         "Filter by Subject:", available_subjects, default=available_subjects
     )
-    selected_scores = st.sidebar.multiselect(
+    selected_scores = st.multiselect(
         "Filter by Aggregated Score:", available_scores, default=available_scores
     )
+    # --- End Enhanced Filters ---
 
-    # Apply filters
+    # Apply filters (Moved Here)
     filtered_df = df.copy()
     if selected_models:
         filtered_df = filtered_df[filtered_df["model_id"].isin(selected_models)]
@@ -1460,13 +1465,17 @@ if st.session_state.get("results_df") is not None:
     if selected_subjects:
         filtered_df = filtered_df[filtered_df["subject"].isin(selected_subjects)]
     if selected_scores:
-        filtered_df = filtered_df[filtered_df["aggregated_score"].isin(selected_scores)]
+        filtered_df = filtered_df[
+            filtered_df["aggregated_score"].isin(selected_scores)
+        ]
 
+    # Check if filtered_df is empty *after* applying filters
     if filtered_df.empty:
         st.warning("No data matches the selected filters.")
         logger.warning("Filtered DataFrame is empty. No graphs will be generated.")
-    else:
+    else: # Code from here onwards should be indented under this else
         logger.info(f"Filtered DataFrame shape: {filtered_df.shape}")
+
         # --- Overall Performance Chart (Using aggregated_score) ---
         st.subheader("Overall Performance by Model")
         logger.info("Attempting to generate 'Overall Performance by Model' chart.")
