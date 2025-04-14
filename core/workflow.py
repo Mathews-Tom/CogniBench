@@ -11,7 +11,8 @@ import logging
 import time  # Added import
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union # Added Union
+from typing import Any, Dict, List, Optional, Union
+
 
 from .llm_clients.base import BaseLLMClient
 from .llm_clients.openai_client import OpenAIClient
@@ -23,7 +24,7 @@ from .preprocessing import (
 from .prompt_templates import load_prompt_template
 from .response_parser import parse_judge_response
 
-logger = logging.getLogger('backend')
+logger = logging.getLogger("backend")
 
 DEFAULT_JUDGE_LLM_PROVIDER: str = "openai"
 DEFAULT_JUDGE_LLM_MODEL: str = "gpt-4o"
@@ -119,7 +120,7 @@ def run_evaluation_workflow(
         "--- Starting Evaluation Workflow for Instance: %s ---", eval_instance_id
     )
 
-    try: # Start of try block
+    try:
         llm_config: Dict[str, Any] = config.get("llm_client", {})
         eval_config: Dict[str, Any] = config.get("evaluation_settings", {})
 
@@ -308,7 +309,6 @@ def run_evaluation_workflow(
 
         norm_prompt_content = normalize_text_formats(prompt)
         norm_correct_answer_text = normalize_text_formats(correct_answer)
-        # extracted_answer = extract_final_answer(norm_model_response_text) # Removed: Redundant with structured response
 
         prompt_template = load_prompt_template(prompt_template_path)
         if prompt_template is None:
@@ -402,7 +402,7 @@ def run_evaluation_workflow(
 
         postprocessing_results = perform_postprocessing(
             parsed_judge_response=parsed_data,
-            structured_model_response_obj=structured_model_response_obj, # Changed argument
+            structured_model_response_obj=structured_model_response_obj,
             correct_final_answer=norm_correct_answer_text,
             config=config,
         )

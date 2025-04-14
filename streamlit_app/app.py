@@ -28,12 +28,12 @@ import yaml
 from core.log_setup import setup_logging  # Reverted to absolute import
 
 # Setup logging for the Streamlit app
-logger = logging.getLogger('streamlit')
+logger = logging.getLogger("streamlit")
 if "logging_setup_complete" not in st.session_state:
     setup_logging()  # Call the setup function
     st.session_state.logging_setup_complete = True  # Mark as done
     # Get the specific logger for streamlit
-    logger = logging.getLogger('streamlit')
+    logger = logging.getLogger("streamlit")
     logger.info("Initial logging setup complete.")  # Log only once
     logger.info("Streamlit app started.")  # Move this here
 # --- Constants ---
@@ -148,21 +148,21 @@ with col_structuring:
     )
 
 with col_judging:
-    st.subheader("Judge Model Configuration")
+    st.subheader("Judging Model Configuration")
     judging_provider = st.selectbox(
-        "Select Judge Model Provider",
+        "Select Judging Model Provider",
         options=list(AVAILABLE_MODELS.keys()),
         index=0,  # Default to first provider
         key="judging_provider_select",
     )
     judging_model = st.selectbox(
-        "Select Judge Model",
+        "Select Judging Model",
         options=list(AVAILABLE_MODELS[judging_provider].keys()),
         index=0,  # Default to first model
         key="judging_model_select",
     )
     judging_api_key = st.text_input(
-        "Judge API Key (Optional)",
+        "Judging API Key (Optional)",
         type="password",
         placeholder="Leave blank to use environment variable",
         key="judging_api_key_input",
@@ -275,7 +275,7 @@ with st.expander("Prompt configurations", expanded=False):
 
     with col_prompt2:
         judging_template = st.selectbox(
-            "Select Judge Prompt Template",
+            "Select Judging Prompt Template",
             options=list(AVAILABLE_JUDGING_TEMPLATES.keys()),
             key="judging_template_select",
         )
@@ -343,11 +343,9 @@ judging_api_key_status = (
 )
 
 st.markdown(f"""
-**Structuring Model:** `{structuring_provider}` - `{structuring_model}`
-**Structuring Prompt:** `{selected_structuring_template_path}`
+**Structuring Model:** `{structuring_provider}` - `{structuring_model}` | **Structuring Prompt:** `{selected_structuring_template_path}`
 
-**Judge Model:** `{judging_provider}` - `{judging_model}`
-**Judge Prompt:** `{selected_judging_template_path}`
+**Judging Model:** `{judging_provider}` - `{judging_model}` | **Judging Prompt:** `{selected_judging_template_path}`
 """)
 
 
@@ -356,13 +354,22 @@ st.markdown("---")
 
 
 # --- Function to load and process results ---
-@st.cache_data(show_spinner=False)  # Re-enable cache
+@st.cache_data(show_spinner=False)
 def load_and_process_results(absolute_results_paths):
-    """Loads data from _final_results.json files (given absolute paths) and processes into a DataFrame."""
+    """Loads data from _final_results.json files (given absolute paths), processes into a DataFrame, and aggregates summary statistics."""
+    logger.info("--- Entering load_and_process_results ---")  # Log entry
     logger.info(
         f"Attempting to load and process results from: {absolute_results_paths}"
     )
     all_results_data = []
+    aggregated_summary = {
+        "total_evaluations_processed": 0,
+        "total_evaluation_time_seconds": 0.0,
+        "total_structuring_api_calls": 0,
+        "total_judging_api_calls": 0,
+        "total_tasks_processed": 0,  # Initialize missing key
+        "average_time_per_model_seconds": {},  # Initialize missing key
+    }
     processed_files_count = 0
     failed_files = []
     for file_path_str in absolute_results_paths:
@@ -370,104 +377,134 @@ def load_and_process_results(absolute_results_paths):
             file_path = Path(file_path_str)  # Convert string path to Path object
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                # --- Add check for nested 'results' key ---
-                if "results" not in data or not isinstance(data["results"], list):
+                file_summary = data.get("summary", {})
+
+                # Aggregate summary stats safely
+                # Use actual keys from JSON summary
+                aggregated_summary["total_evaluations_processed"] += file_summary.get(
+                    "total_evaluations_processed", 0
+                )
+                aggregated_summary["total_evaluation_time_seconds"] += file_summary.get(
+                    "total_evaluation_time_seconds", 0.0
+                )
+                aggregated_summary["total_structuring_api_calls"] += file_summary.get(
+                    "total_structuring_api_calls", 0
+                )
+                aggregated_summary["total_judging_api_calls"] += file_summary.get(
+                    "total_judging_api_calls", 0
+                )
+                # Aggregate total_tasks_processed
+                aggregated_summary["total_tasks_processed"] += file_summary.get(
+                    "total_tasks_processed", 0
+                )
+                # Aggregate average_time_per_model_seconds (simple merge, assumes no overlapping models across files)
+                # A more robust approach might average times if models appear in multiple files,
+                # but for now, a simple update/merge should work if files represent distinct batches/runs.
+                per_model_times = file_summary.get("average_time_per_model_seconds", {})
+                if isinstance(per_model_times, dict):
+                    aggregated_summary["average_time_per_model_seconds"].update(
+                        per_model_times
+                    )
+
+                # --- Process 'results' list ---
+                results_list = data.get("results", [])
+                if not isinstance(results_list, list):
                     logger.error(
-                        f"JSON file {file_path_str} does not contain a 'results' list."
+                        f"JSON file {file_path_str} does not contain a valid 'results' list."
                     )
                     failed_files.append(file_path_str)
-                    continue  # Skip this file if structure is wrong
-                # --- End check ---
-                task_count = 0
-                for task in data[
-                    "results"
-                ]:  # Iterate over the list inside the 'results' key
-                    task_count += 1
-                    task_id = task.get("task_id")
-                    prompt = task.get("prompt")
-                    ideal_response = task.get("ideal_response")
-                    final_answer_gt = task.get("final_answer")
-                    metadata = task.get("metadata", {})
-                    subject = metadata.get("subject", "N/A")
-                    complexity = metadata.get("complexity", "N/A")
+                    # Continue processing summary even if results are bad, but don't process tasks
+                else:
+                    # Process tasks only if results_list is valid
+                    task_count = 0
+                    for task in results_list:
+                        task_count += 1
+                        task_id = task.get("task_id")
+                        prompt = task.get("prompt")
+                        ideal_response = task.get("ideal_response")
+                        final_answer_gt = task.get("final_answer")
+                        metadata = task.get("metadata", {})
+                        subject = metadata.get("subject", "N/A")
+                        complexity = metadata.get("complexity", "N/A")
 
-                    eval_count = 0
-                    for evaluation in task.get("evaluations", []):
-                        eval_count += 1
-                        model_id = evaluation.get("model_id")
-                        model_response = evaluation.get("model_response")
-                        human_eval = evaluation.get("human_evaluation", {})
-                        judge_eval = evaluation.get("judge_evaluation", {})
+                        eval_count = 0
+                        for evaluation in task.get("evaluations", []):
+                            eval_count += 1
+                            model_id = evaluation.get("model_id")
+                            model_response = evaluation.get("model_response")
+                            human_eval = evaluation.get("human_evaluation", {})
+                            judge_eval = evaluation.get("judge_evaluation", {})
 
-                        flat_judge_eval = {}
-                        if isinstance(judge_eval, dict):
-                            for key, value in judge_eval.items():
-                                if isinstance(value, dict):
-                                    if key == "parsed_rubric_scores":
-                                        for (
-                                            rubric_name,
-                                            rubric_details,
-                                        ) in value.items():
-                                            if isinstance(rubric_details, dict):
+                            flat_judge_eval = {}
+                            if isinstance(judge_eval, dict):
+                                for key, value in judge_eval.items():
+                                    if isinstance(value, dict):
+                                        if key == "parsed_rubric_scores":
+                                            for (
+                                                rubric_name,
+                                                rubric_details,
+                                            ) in value.items():
+                                                if isinstance(rubric_details, dict):
+                                                    flat_judge_eval[
+                                                        f"judge_rubric_{rubric_name}_score"
+                                                    ] = rubric_details.get("score")
+                                                    flat_judge_eval[
+                                                        f"judge_rubric_{rubric_name}_justification"
+                                                    ] = rubric_details.get(
+                                                        "justification"
+                                                    )
+                                                else:
+                                                    flat_judge_eval[
+                                                        f"judge_rubric_{rubric_name}"
+                                                    ] = rubric_details
+                                        else:
+                                            for sub_key, sub_value in value.items():
                                                 flat_judge_eval[
-                                                    f"judge_rubric_{rubric_name}_score"
-                                                ] = rubric_details.get("score")
-                                                flat_judge_eval[
-                                                    f"judge_rubric_{rubric_name}_justification"
-                                                ] = rubric_details.get("justification")
-                                            else:
-                                                flat_judge_eval[
-                                                    f"judge_rubric_{rubric_name}"
-                                                ] = rubric_details
+                                                    f"judge_{key}_{sub_key}"
+                                                ] = sub_value
                                     else:
-                                        for sub_key, sub_value in value.items():
-                                            flat_judge_eval[
-                                                f"judge_{key}_{sub_key}"
-                                            ] = sub_value
-                                else:
-                                    flat_judge_eval[f"judge_{key}"] = value
-                        else:
-                            flat_judge_eval["judge_evaluation_raw"] = judge_eval
+                                        flat_judge_eval[f"judge_{key}"] = value
+                            else:
+                                flat_judge_eval["judge_evaluation_raw"] = judge_eval
 
-                        aggregated_score = str(
-                            flat_judge_eval.get("judge_aggregated_score", "N/A")
-                        ).title()
+                            aggregated_score = str(
+                                flat_judge_eval.get("judge_aggregated_score", "N/A")
+                            ).title()
 
-                        all_results_data.append(
-                            {
-                                "task_id": task_id,
-                                "model_id": model_id,
-                                "subject": subject,
-                                "complexity": complexity,
-                                "aggregated_score": aggregated_score,
-                                "prompt": prompt,
-                                "ideal_response": ideal_response,
-                                "model_response": model_response,
-                                "final_answer_ground_truth": final_answer_gt,
-                                **flat_judge_eval,
-                                "human_preference": human_eval.get("preference"),
-                                "human_rating": human_eval.get("rating"),
-                            }
-                        )
+                            all_results_data.append(
+                                {
+                                    "task_id": task_id,
+                                    "model_id": model_id,
+                                    "subject": subject,
+                                    "complexity": complexity,
+                                    "aggregated_score": aggregated_score,
+                                    "prompt": prompt,
+                                    "ideal_response": ideal_response,
+                                    "model_response": model_response,
+                                    "final_answer_ground_truth": final_answer_gt,
+                                    **flat_judge_eval,
+                                    "human_preference": human_eval.get("preference"),
+                                    "human_rating": human_eval.get("rating"),
+                                }
+                            )
         except FileNotFoundError:
             st.error(f"Results file not found: {file_path_str}")
             logger.error(f"Results file not found: {file_path_str}")  # Added log
             failed_files.append(file_path_str)
-            # Consider removing 'return None' if you want to process other files
-            return None
+            # Continue processing other files
         except json.JSONDecodeError:
             st.error(f"Error decoding JSON from file: {file_path_str}")
-            logger.error(
-                f"Error decoding JSON from file: {file_path_str}"
-            )  # Added log
+            logger.error(f"Error decoding JSON from file: {file_path_str}")  # Added log
             failed_files.append(file_path_str)
-            # Consider removing 'return None' if you want to process other files
-            return None
+            # Continue processing other files
         except Exception as e:
             st.error(f"Error processing file {file_path_str}: {e}")
             logger.error(f"Error processing file {file_path_str}: {e}")  # Added log
             failed_files.append(file_path_str)
+            # Continue processing other files
         else:
+            # This else block corresponds to the try block starting at line 375
+            # It executes only if no exceptions occurred during file reading/parsing
             processed_files_count += 1  # Increment count on success
 
     # Log summary before returning
@@ -478,7 +515,11 @@ def load_and_process_results(absolute_results_paths):
     logger.info(
         f"Successfully processed {processed_files_count} result files out of {len(absolute_results_paths)}."
     )
-    return pd.DataFrame(all_results_data)
+    logger.info(
+        f"--- Exiting load_and_process_results. Returning DataFrame (shape: {pd.DataFrame(all_results_data).shape}) and Summary: {aggregated_summary} ---"
+    )  # Log exit and return values
+    # Return both the DataFrame and the aggregated summary
+    return pd.DataFrame(all_results_data), aggregated_summary
 
 
 # Removed duplicate/erroneous lines
@@ -532,9 +573,7 @@ elif action == "Recreate Graphs from Existing Data":
     )
 
     if st.button("📊 Regenerate Graphs", disabled=not selected_folders):
-        logger.info(
-            f"Regenerate Graphs button clicked for folders: {selected_folders}"
-        )
+        logger.info(f"Regenerate Graphs button clicked for folders: {selected_folders}")
         evaluation_results_paths = []
         for folder in selected_folders:
             folder_path = data_dir / folder
@@ -546,13 +585,25 @@ elif action == "Recreate Graphs from Existing Data":
                 st.warning(f"No final results file found in {folder}")
 
         if evaluation_results_paths:
-            # Pass the absolute paths directly
-            st.session_state.results_df = load_and_process_results(
-                evaluation_results_paths
+            # Store the absolute paths in session state *before* loading
+            st.session_state.evaluation_results_paths = evaluation_results_paths
+            logger.info(
+                f"Stored absolute evaluation paths in session state: {st.session_state.evaluation_results_paths}"
+            )
+            # Clear potentially stale raw data from previous views
+            if "raw_results_data" in st.session_state:
+                del st.session_state.raw_results_data
+                logger.info("Cleared stale raw_results_data from session state.")
+
+            # Load results AND summary, store both in session state using the absolute paths
+            st.session_state.results_df, st.session_state.summary_data = (
+                load_and_process_results(
+                    st.session_state.evaluation_results_paths  # Use paths from session state
+                )
             )
             st.success("Graphs regenerated successfully!")
             logger.info("Graphs regenerated successfully.")
-            st.rerun()
+            # st.rerun() # Removed to allow session state to persist for display
         else:
             st.error("No valid evaluation data found in selected folders.")
             logger.warning(
@@ -698,16 +749,15 @@ if (
     st.rerun()  # Rerun to disable button and show progress area
 
 if st.session_state.get("evaluation_running", False):
-    st.header("Evaluation Progress ⏳")
-    progress_area = st.container()
+    progress_area = st.container()  # Removed header
     stop_button = st.button("🛑 Stop Processing", type="primary")
     if stop_button:
         st.session_state.stop_requested = True
     log_expander = st.expander("Show Full Logs", expanded=False)
     log_placeholder = log_expander.empty()
 
-    with st.spinner("Evaluations running... Please wait."):
-        progress_bar = progress_area.progress(0.0)
+    with st.spinner("Evaluation Progress..."):  # Updated spinner text
+        # Removed progress bar
         progress_text = progress_area.text("Starting evaluation...")
         log_placeholder.code(
             "\n".join(st.session_state.last_run_output[-1000:]), language="log"
@@ -842,7 +892,7 @@ if st.session_state.get("evaluation_running", False):
                 total_tasks_backend = int(progress_match.group(2))
                 if total_tasks_backend > 0:
                     progress_percentage = float(current_task) / total_tasks_backend
-                    progress_bar.progress(progress_percentage)
+                    # Removed progress bar update
                     progress_text.text(
                         f"Evaluating Task {current_task}/{total_tasks_backend}..."
                     )
@@ -863,43 +913,36 @@ if st.session_state.get("evaluation_running", False):
                     f"Found potential results file line: '{raw_path}'"
                 )  # Log raw path
                 # Proceed with path processing using raw_path
-                results_path = raw_path  # Initialize with raw path
+                # Always store the absolute path
                 try:
-                    abs_path = Path(raw_path)
-                    # Check if it's already absolute and within the project root for consistency
-                    if abs_path.is_absolute():
-                        logger.info(f"Path '{raw_path}' is absolute.")
-                        if COGNIBENCH_ROOT in abs_path.parents:
-                            # Convert to relative if inside project root
-                            results_path = str(abs_path.relative_to(COGNIBENCH_ROOT))
-                            logger.info(
-                                f"Converted absolute path to relative: '{results_path}'"
-                            )
-                        else:
-                            # Keep absolute if outside project root (less likely but handle)
-                            results_path = str(abs_path)
-                            logger.info(
-                                f"Keeping absolute path (outside project root): '{results_path}'"
-                            )
-                    else:
-                        # If it's relative, assume it's relative to COGNIBENCH_ROOT
-                        results_path = str(Path(raw_path))  # Keep as relative string
+                    path_obj = Path(raw_path)
+                    # Resolve to absolute path if it's relative (assuming relative to COGNIBENCH_ROOT)
+                    if not path_obj.is_absolute():
+                        abs_path_str = str((COGNIBENCH_ROOT / path_obj).resolve())
                         logger.info(
-                            f"Path '{raw_path}' is relative, keeping as: '{results_path}'"
+                            f"Resolved relative path '{raw_path}' to absolute: '{abs_path_str}'"
+                        )
+                    else:
+                        abs_path_str = str(
+                            path_obj.resolve()
+                        )  # Ensure it's fully resolved even if absolute
+                        logger.info(
+                            f"Path '{raw_path}' is already absolute: '{abs_path_str}'"
                         )
 
                     # Ensure we don't add duplicates
-                    if results_path not in st.session_state.evaluation_results_paths:
+                    if abs_path_str not in st.session_state.evaluation_results_paths:
                         logger.info(
-                            f"Appending processed path to list: '{results_path}'"
-                        )  # Log before append
-                        st.session_state.evaluation_results_paths.append(results_path)
+                            f"Appending absolute path to list: '{abs_path_str}'"
+                        )
+                        st.session_state.evaluation_results_paths.append(abs_path_str)
+                        # Display the absolute path in the success message
                         progress_area.success(
-                            f"Found and stored results file path: {results_path}"
+                            f"Found and stored results file path: {abs_path_str}"
                         )
                     else:
                         logger.info(
-                            f"Path '{results_path}' already in list, skipping append."
+                            f"Path '{abs_path_str}' already in list, skipping append."
                         )  # Log if skipped
 
                 except Exception as path_e:
@@ -944,20 +987,23 @@ if st.session_state.get("evaluation_running", False):
                     f"Attempting to load results after run from absolute paths: {absolute_paths}"
                 )
                 # Pass the absolute paths directly to the loading function
-                results_df = load_and_process_results(
+                # Load results AND summary
+                results_df, summary_data = load_and_process_results(
                     absolute_paths  # Use the constructed absolute paths
                 )
-                st.session_state.results_df = (
-                    results_df  # Store loaded df in session state
-                )
+                st.session_state.results_df = results_df  # Store loaded df
+                st.session_state.summary_data = summary_data  # Store summary data
                 # Add logging here to check if it was loaded before the rerun
                 logger.info(
-                    f"After evaluation run, results_df is None: {st.session_state.results_df is None}"
+                    f"After evaluation run, results_df is None: {st.session_state.get('results_df') is None}"
                 )
-                if st.session_state.results_df is not None:
+                if st.session_state.get("results_df") is not None:
                     logger.info(
                         f"Loaded DataFrame shape after run: {st.session_state.results_df.shape}"
                     )
+                logger.info(
+                    f"After evaluation run, summary_data: {st.session_state.get('summary_data')}"
+                )
             else:
                 logger.warning(
                     "No evaluation_results_paths found in session state after run."
@@ -982,50 +1028,110 @@ if st.session_state.get("evaluation_running", False):
                 )
             st.session_state.eval_duration_str = ", ".join(parts)
 
-            # Count API calls from logs
-            structuring_calls = 0
-            judging_calls = 0
-            for log_line in st.session_state.last_run_output:
-                if "STRUCTURING_CALL:" in log_line:
-                    structuring_calls += 1
-                elif "JUDGING_CALL:" in log_line:
-                    judging_calls += 1
-
-            # Calculate averages
+            # API calls are now retrieved from summary_data
+            structuring_calls = st.session_state.get("summary_data", {}).get(
+                "total_structuring_api_calls", "N/A"
+            )
+            judging_calls = st.session_state.get("summary_data", {}).get(
+                "total_judging_api_calls", "N/A"
+            )
+            # Calculate averages using summary_data for consistency
             avg_time_per_task_str = "N/A"
             avg_time_per_model_eval_str = "N/A"
+            summary_data = st.session_state.get("summary_data", {})
+            total_evals_from_summary = summary_data.get("total_evaluations")
+            total_duration_from_summary = summary_data.get("total_duration_seconds")
+
+            # Need num_unique_tasks from the dataframe if available
             num_unique_tasks = 0
-            num_evaluations = 0
-
-            if results_df is not None and not results_df.empty:
+            if (
+                st.session_state.get("results_df") is not None
+                and not st.session_state.results_df.empty
+            ):
+                results_df = st.session_state.results_df
                 num_unique_tasks = results_df["task_id"].nunique()
-                num_evaluations = len(results_df)
+
+            # Calculate averages if relevant data from summary is valid
+            if (
+                isinstance(total_duration_from_summary, (int, float))
+                and total_duration_from_summary > 0
+            ):
                 if num_unique_tasks > 0:
-                    avg_time_per_task = duration_seconds / num_unique_tasks
-                    avg_time_per_task_str = f"{avg_time_per_task:.2f} seconds"
-                if num_evaluations > 0:
-                    avg_time_per_model_eval = duration_seconds / num_evaluations
-                    avg_time_per_model_eval_str = (
-                        f"{avg_time_per_model_eval:.2f} seconds"
+                    avg_time_per_task = total_duration_from_summary / num_unique_tasks
+                    avg_time_per_task_str = (
+                        f"{avg_time_per_task:.2f}s"  # Use 's' suffix
                     )
+                if (
+                    isinstance(total_evals_from_summary, int)
+                    and total_evals_from_summary > 0
+                ):
+                    avg_time_per_model_eval = (
+                        total_duration_from_summary / total_evals_from_summary
+                    )
+                    avg_time_per_model_eval_str = (
+                        f"{avg_time_per_model_eval:.2f}s"  # Use 's' suffix
+                    )
+            else:
+                # Use summary data if df is empty/None but summary exists
+                num_evaluations = st.session_state.get("summary_data", {}).get(
+                    "total_evaluations", 0
+                )
 
-            # Construct final summary message
-            summary_message = f"""
-            All evaluations complete!
-            - **Total Duration:** {st.session_state.eval_duration_str}
-            - **Structuring Calls:** {structuring_calls}
-            - **Judging Calls:** {judging_calls}
-            - **Total Tasks Processed:** {num_unique_tasks}
-            - **Total Model Evaluations:** {num_evaluations}
-            - **Avg. Time per Task:** {avg_time_per_task_str}
-            - **Avg. Time per Model Evaluation:** {avg_time_per_model_eval_str}
-            """
-
-            # Display final messages
+            # --- Display New Summary Metrics ---
             progress_area.success("Evaluation Run Summary:")
-            progress_area.markdown(
-                summary_message
-            )  # Use markdown for better formatting
+            summary_data = st.session_state.get("summary_data", {})
+
+            # Use wall-clock duration calculated earlier
+            total_duration_display = st.session_state.get("eval_duration_str", "N/A")
+
+            # Get counts from summary_data with defaults, using correct keys
+            total_tasks_display = summary_data.get(
+                "total_tasks_processed", "N/A"
+            )  # Use correct key for tasks
+            total_evals_display = summary_data.get(
+                "total_evaluations_processed", "N/A"
+            )  # Fetch evaluations count
+            structuring_calls_display = summary_data.get(
+                "total_structuring_api_calls", "N/A"
+            )
+            judging_calls_display = summary_data.get("total_judging_api_calls", "N/A")
+
+            # Row 1
+            col1, col2 = progress_area.columns(2)
+            col1.metric(
+                "Total Tasks Processed", total_tasks_display
+            )  # Updated label and variable
+            col2.metric("Total Evaluation Duration", total_duration_display)
+
+            # Row 2
+            col3, col4, col5 = progress_area.columns(3)
+            # Keep 3 columns, but update the first metric
+            col3.metric(
+                "Total Evaluations Completed", total_evals_display
+            )  # Use evaluations count and new label
+            col4.metric("Total Structuring Calls", structuring_calls_display)
+            col5.metric("Total Judging Calls", judging_calls_display)
+
+            # --- Display Averages in Expander ---
+            with progress_area.expander("Average Statistics"):
+                # Prepare per-model average time string
+                avg_time_per_model_dict = summary_data.get(
+                    "average_time_per_model_seconds", {}
+                )
+                per_model_avg_lines = [
+                    f"  - `{model}`: {time:.2f}s"
+                    for model, time in avg_time_per_model_dict.items()
+                ]
+                per_model_avg_str = (
+                    "\n".join(per_model_avg_lines) if per_model_avg_lines else "  - N/A"
+                )
+
+                st.markdown(f"""
+                - **Avg. Time per Task:** {avg_time_per_task_str}
+                - **Avg. Time per Model Evaluation (Overall):** {avg_time_per_model_eval_str}
+                - **Avg. Time per Model Evaluation (Breakdown):**
+{per_model_avg_str}
+                """)
 
             if st.session_state.evaluation_results_paths:
                 progress_area.write("Generated results files:")
@@ -1125,25 +1231,165 @@ if (
 ):
     with st.spinner("Loading and processing results..."):
         # Use the cached function to load data
-        st.session_state.results_df = load_and_process_results(
-            st.session_state.evaluation_results_paths
+        # Load results and summary, store both
+        st.session_state.results_df, st.session_state.summary_data = (
+            load_and_process_results(st.session_state.evaluation_results_paths)
         )
+        logger.info(f"--- After calling load_and_process_results ---")
+        logger.info(
+            f"st.session_state.results_df is None: {st.session_state.results_df is None}"
+        )
+        if st.session_state.results_df is not None:
+            logger.info(
+                f"st.session_state.results_df shape: {st.session_state.results_df.shape}"
+            )
+        logger.info(f"st.session_state.summary_data: {st.session_state.summary_data}")
 
 # --- Display Results if DataFrame is loaded ---
 logger.info(
     f"Checking session state before graph display. results_df is None: {st.session_state.get('results_df') is None}"
 )
-if st.session_state.results_df is not None:
+# --- Load Raw Results Data (for JSON viewers) ---
+# Attempt to load raw data if paths exist and it's not already loaded
+if (
+    st.session_state.get("evaluation_results_paths")
+    and "raw_results_data" not in st.session_state
+):
+    raw_data_load_success = False
+    results_file_abs_path = None # Initialize path variable
+
+    # Check if the paths list exists and is not empty
+    if st.session_state.get("evaluation_results_paths"):
+        # Use the absolute path string directly from session state
+        abs_path_str = st.session_state.evaluation_results_paths[0] # Get the stored absolute path string
+        results_file_abs_path = Path(abs_path_str) # Convert string to Path object
+        logger.info(f"Attempting to load raw results data from: {results_file_abs_path}")
+    else:
+        logger.warning("evaluation_results_paths is empty or missing in session state, cannot load raw data.")
+
+    # Proceed only if we have a valid path
+    if results_file_abs_path:
+        try: # Correctly indented try block
+            if results_file_abs_path.is_file():
+                with open(results_file_abs_path, "r", encoding="utf-8") as f:
+                    # Store the entire parsed JSON, including summary and results list
+                    st.session_state.raw_results_data = json.load(f)
+                    # Basic validation
+                    if isinstance(st.session_state.raw_results_data.get("results"), list):
+                        logger.info(
+                            f"Successfully loaded raw results data from {results_file_abs_path.name}"
+                        )
+                        raw_data_load_success = True
+                    else:
+                        logger.error(
+                            f"'results' key not found or not a list in {results_file_abs_path}"
+                        )
+                        st.warning(
+                            f"Could not find a valid 'results' list in {results_file_abs_path.name}. Detailed JSON views may be affected."
+                        )
+                        # Keep potentially valid summary data if results list is bad
+                        if "results" in st.session_state.raw_results_data:
+                            del st.session_state.raw_results_data["results"] # Remove invalid results
+            else:
+                logger.error(f"Raw results file not found at {results_file_abs_path}")
+                st.warning(f"Could not find the results file ({results_file_abs_path.name}) needed for detailed JSON views.")
+
+        except json.JSONDecodeError:
+            logger.exception(f"JSONDecodeError reading raw results from {results_file_abs_path}")
+            st.error(f"Error decoding JSON from {results_file_abs_path.name}. Detailed JSON views may be unavailable.")
+        except Exception as e:
+            logger.exception(f"Error loading raw results data from {results_file_abs_path}: {e}")
+            st.error(f"An error occurred loading raw results data: {e}. Detailed JSON views may be unavailable.")
+
+        # Clear the session state variable if loading failed completely
+        if not raw_data_load_success and "raw_results_data" in st.session_state:
+             del st.session_state.raw_results_data
+    # Removed duplicated block from previous failed diff
+
+if st.session_state.get("results_df") is not None:
     logger.info(
         "Results DataFrame found in session state. Proceeding with visualization."
     )
     df = st.session_state.results_df
     st.success(f"Loaded {len(df)} evaluation results.")
-    # Display evaluation duration if available
-    if st.session_state.get("eval_duration_str"):
-        st.info(
-            f"Total evaluation time: {st.session_state.eval_duration_str}"
-        )  # Display the new format
+    # --- Display Summary Metrics (Loaded Data) ---
+    summary_data = st.session_state.get("summary_data", {})
+    logger.info(f"Summary data from session state: {summary_data}")  # Add logging
+    # Use correct key from JSON
+    total_duration_s = summary_data.get("total_evaluation_time_seconds", 0.0)
+    total_duration_display = f"{total_duration_s:.1f}s" if total_duration_s else "N/A"
+    # Use correct key from JSON
+    total_tasks_display = summary_data.get(
+        "total_tasks_processed", "N/A"
+    )  # Use correct key for tasks
+    total_evals_display = summary_data.get(
+        "total_evaluations_processed", "N/A"
+    )  # Fetch evaluations count
+    structuring_calls_display = summary_data.get("total_structuring_api_calls", "N/A")
+    judging_calls_display = summary_data.get("total_judging_api_calls", "N/A")
+
+    st.subheader("Evaluation Summary")
+    # Row 1
+    col1, col2 = st.columns(2)
+    col1.metric(
+        "Total Tasks Processed", total_tasks_display
+    )  # Updated label and variable
+    col2.metric("Total Evaluation Duration", total_duration_display)
+
+    # Row 2
+    col3, col4, col5 = st.columns(3)
+    col3.metric(
+        "Total Evaluations Processed", total_evals_display
+    )  # Use evaluations count and new label
+    col4.metric("Total Structuring Calls", structuring_calls_display)
+    col5.metric("Total Judging Calls", judging_calls_display)
+
+    # --- Display Averages in Expander (Loaded Data) ---
+    # Calculate averages using summary_data and df
+    avg_time_per_task_str = "N/A"
+    avg_time_per_model_eval_str = "N/A"
+    # Get total evaluations from summary data
+    total_evals_from_summary = summary_data.get(
+        "total_evaluations_processed"
+    )  # Use correct key
+
+    # Get unique tasks count from the dataframe
+    num_unique_tasks = 0
+    if not df.empty:
+        num_unique_tasks = df["task_id"].nunique()
+
+    # Calculate averages if relevant data is valid
+    if isinstance(total_duration_s, (int, float)) and total_duration_s > 0:
+        if num_unique_tasks > 0:
+            avg_time_per_task = total_duration_s / num_unique_tasks
+            avg_time_per_task_str = f"{avg_time_per_task:.2f}s"  # Use 's' suffix
+        # Use total_evals_from_summary for per-model-eval average
+        if isinstance(total_evals_from_summary, int) and total_evals_from_summary > 0:
+            avg_time_per_model_eval = total_duration_s / total_evals_from_summary
+            avg_time_per_model_eval_str = (
+                f"{avg_time_per_model_eval:.2f}s"  # Use 's' suffix
+            )
+
+    with st.expander("Average Statistics"):
+        # Prepare per-model average time string
+        avg_time_per_model_dict = summary_data.get("average_time_per_model_seconds", {})
+        logger.info(f"Per-model avg dict: {avg_time_per_model_dict}")  # Add logging
+        per_model_avg_lines = [
+            f"  - `{model}`: {time:.2f}s"
+            for model, time in avg_time_per_model_dict.items()
+        ]
+        per_model_avg_str = (
+            "\n".join(per_model_avg_lines) if per_model_avg_lines else "  - N/A"
+        )
+
+        st.markdown(
+            f"""
+- **Avg. Time per Task:** {avg_time_per_task_str}
+- **Avg. Time per Model Evaluation (Overall):** {avg_time_per_model_eval_str}
+- **Avg. Time per Model Evaluation (Breakdown):**
+{per_model_avg_str}
+"""
+        )
 
     # --- Enhanced Filters ---
     st.sidebar.header("Enhanced Filters")
@@ -1441,47 +1687,189 @@ if st.session_state.results_df is not None:
                 # --- Human Review Input ---
                 if not review_needed_df.empty:
                     st.subheader("Human Review Input")
-                    selected_review_task = st.selectbox(
+                    # Keep using review_needed_df to populate the selectbox of tasks needing review
+                    selected_review_task_id = st.selectbox(
                         "Select Task ID for Review:",
-                        review_needed_df["task_id"].unique(),
+                        options=review_needed_df["task_id"].unique(),
+                        key="human_review_task_select",  # Add key
                     )
-                    review_task_details = review_needed_df[
-                        review_needed_df["task_id"] == selected_review_task
+
+                    # Get the model_id associated with this flagged review from the filtered df
+                    review_model_id = review_needed_df.loc[
+                        review_needed_df["task_id"] == selected_review_task_id,
+                        "model_id",
                     ].iloc[0]
 
-                    st.write("### Review Task Details")
-                    st.json(review_task_details.to_dict())
+                    st.write(
+                        f"Reviewing Task **{selected_review_task_id}** for Model **{review_model_id}**"
+                    )
 
-                    corrected_scores = {}
-                    rubric_cols = [
-                        col
-                        for col in review_task_details.index
-                        if col.startswith("judge_rubric_") and col.endswith("_score")
-                    ]
-                    for rubric in rubric_cols:
-                        corrected_scores[rubric] = st.selectbox(
-                            f"Corrected Score for {rubric.replace('judge_rubric_', '').replace('_score', '').replace('_', ' ').title()}:",
-                            ["Yes", "Partial", "No", "N/A"],
-                            index=["Yes", "Partial", "No", "N/A"].index(
-                                review_task_details[rubric]
+                    # --- Load and Display Raw JSON for the selected task/model ---
+                    raw_task_dict = None
+                    target_evaluation = None
+                    parsed_rubric_scores = {}  # Initialize
+
+                    if "raw_results_data" in st.session_state and isinstance(
+                        st.session_state.raw_results_data.get("results"), list
+                    ):
+                        # Find the raw task dictionary
+                        raw_task_dict = next(
+                            (
+                                task
+                                for task in st.session_state.raw_results_data["results"]
+                                if task.get("task_id", task.get("id"))
+                                == selected_review_task_id
                             ),
+                            None,
                         )
 
-                    review_comments = st.text_area("Review Comments:")
+                        if raw_task_dict:
+                            # Find the specific evaluation within this task matching the model_id
+                            target_evaluation = next(
+                                (
+                                    ev
+                                    for ev in raw_task_dict.get("evaluations", [])
+                                    if ev.get("model_id") == review_model_id
+                                ),
+                                None,
+                            )
 
-                    if st.button("Save Human Review"):
+                            if target_evaluation:
+                                st.write(
+                                    "#### Review Task Details (Raw JSON)"
+                                )  # Changed heading size
+                                st.json(
+                                    target_evaluation, expanded=False
+                                )  # Display the specific evaluation JSON
+
+                                # Extract rubric scores from the target evaluation's judge_evaluation
+                                judge_eval = target_evaluation.get(
+                                    "judge_evaluation", {}
+                                )
+                                if isinstance(judge_eval, dict):
+                                    parsed_rubric_scores = judge_eval.get(
+                                        "parsed_rubric_scores", {}
+                                    )
+                                    if not isinstance(parsed_rubric_scores, dict):
+                                        st.warning(
+                                            "Parsed rubric scores format is unexpected."
+                                        )
+                                        logger.warning(
+                                            f"Unexpected format for parsed_rubric_scores in task {selected_review_task_id}, model {review_model_id}"
+                                        )
+                                        parsed_rubric_scores = {}  # Reset to empty dict
+                            else:
+                                st.error(
+                                    f"Could not find evaluation details for model '{review_model_id}' within task '{selected_review_task_id}' in the raw data."
+                                )
+                                logger.error(
+                                    f"Evaluation for model {review_model_id} not found in raw data for task {selected_review_task_id}"
+                                )
+                        else:
+                            st.error(
+                                f"Could not find raw task details for task ID: {selected_review_task_id}"
+                            )
+                            logger.error(
+                                f"Raw task details not found for task ID: {selected_review_task_id}"
+                            )
+                    else:
+                        st.warning(
+                            "Raw results data not available. Cannot display detailed JSON or populate rubric scores accurately."
+                        )
+                        logger.warning(
+                            "st.session_state.raw_results_data not found or invalid for human review section."
+                        )
+
+                    # --- Rubric Score Correction Inputs ---
+                    # Use the extracted parsed_rubric_scores dictionary
+                    st.write("#### Correct Rubric Scores")
+                    corrected_scores = {}
+                    if parsed_rubric_scores:  # Check if we have scores to display
+                        for rubric_name, score_details in parsed_rubric_scores.items():
+                            options = ["Yes", "Partial", "No", "N/A"]
+                            current_value = score_details.get(
+                                "score", "N/A"
+                            )  # Default to N/A if score key missing
+
+                            # Handle potential NaN or unexpected values robustly
+                            if pd.notna(current_value) and current_value in options:
+                                try:
+                                    default_index = options.index(current_value)
+                                except ValueError:
+                                    logger.warning(
+                                        f"Rubric score '{current_value}' for '{rubric_name}' not in options {options}. Defaulting to N/A."
+                                    )
+                                    default_index = options.index("N/A")
+                            else:
+                                default_index = options.index(
+                                    "N/A"
+                                )  # Default to N/A index if NaN or invalid
+
+                            # Use rubric_name for the key and label
+                            corrected_scores[rubric_name] = st.selectbox(
+                                f"Corrected Score for {rubric_name.replace('_', ' ').title()}:",
+                                options,
+                                index=default_index,
+                                key=f"review_rubric_{selected_review_task_id}_{review_model_id}_{rubric_name}",  # Unique key
+                            )
+                    else:
+                        st.info(
+                            "No rubric scores found in the judge evaluation for this task/model."
+                        )
+
+                    review_comments = st.text_area(
+                        "Review Comments:",
+                        key=f"review_comments_{selected_review_task_id}_{review_model_id}",
+                    )
+
+                    if st.button(
+                        "Save Human Review",
+                        key=f"save_review_{selected_review_task_id}_{review_model_id}",
+                    ):
                         logger.info(
-                            f"Saving human review for task {selected_review_task}."
+                            f"Attempting to save human review for task {selected_review_task_id}, model {review_model_id}."
                         )
-                        review_task_details["human_corrected_scores"] = corrected_scores
-                        review_task_details["human_review_comments"] = review_comments
-                        review_task_details["human_review_status"] = "Reviewed"
-                        review_task_details["human_review_timestamp"] = (
-                            datetime.utcnow().isoformat() + "Z"
+                        # --- Logic to update the original data structure (or save elsewhere) ---
+                        # This part is complex as it requires modifying the potentially large raw_results_data
+                        # or saving the review separately. For now, just log and show success.
+                        # TODO: Implement actual saving mechanism (e.g., update file, save to DB)
+                        st.success(
+                            f"Human review recorded for Task {selected_review_task_id}, Model {review_model_id} (Saving mechanism TBD)."
                         )
-                        st.success("Human review saved successfully.")
-                        # Here you would typically save these details back to your data storage
+                        logger.info(
+                            f"Human review data captured: Scores={corrected_scores}, Comments='{review_comments}'"
+                        )
+                        # Optionally, update the status in the main DataFrame (df) to reflect review completion
+                        # This requires finding the correct row index in 'df'
+                        try:
+                            row_index = df[
+                                (df["task_id"] == selected_review_task_id)
+                                & (df["model_id"] == review_model_id)
+                            ].index
+                            if not row_index.empty:
+                                # Update the status column used for filtering/display (e.g., 'judge_human_review_status')
+                                # Make sure the column name matches exactly what's used earlier
+                                status_col_name = "judge_human_review_status"  # Or derive dynamically if needed
+                                if status_col_name in df.columns:
+                                    df.loc[row_index, status_col_name] = (
+                                        "Reviewed"  # Or another appropriate status
+                                    )
+                                    logger.info(
+                                        f"Updated status in DataFrame for task {selected_review_task_id}, model {review_model_id}"
+                                    )
+                                    # Maybe trigger a rerun to refresh the 'Tasks Flagged for Human Review' table
+                                    # st.rerun() # Consider implications of rerun here
+                                else:
+                                    logger.warning(
+                                        f"Status column '{status_col_name}' not found in DataFrame, cannot update."
+                                    )
 
+                        except Exception as update_e:
+                            logger.error(
+                                f"Error updating DataFrame status after review: {update_e}"
+                            )
+
+                        # Here you would typically save these details back to your data storage
             else:
                 logger.warning(
                     f"Skipping Human Review Status chart/explorer. Required columns ('model_id', '{review_status_col}') not found."
@@ -1495,16 +1883,128 @@ if st.session_state.results_df is not None:
                 "Skipping Rubric Score Analysis / Human Review sections. Rubric score columns not found or 'model_id' missing."
             )
 
-        # --- Task-Level Explorer (Should be outside the rubric/review if/else, but inside the main results display else) ---
+        # --- Task-Level Explorer (Loads raw JSON for selected task) ---
         st.subheader("Detailed Task-Level Explorer")
-        logger.info("Displaying 'Detailed Task-Level Explorer'.")
-        selected_task = st.selectbox(
-            "Select Task ID for Detailed View:", filtered_df["task_id"].unique()
+        logger.info(
+            "Attempting to display 'Detailed Task-Level Explorer' with raw JSON."
         )
-        task_details = (
-            filtered_df[filtered_df["task_id"] == selected_task].iloc[0].to_dict()
-        )
-        st.json(task_details)
+
+        raw_task_data = None
+        task_ids = []
+        selected_task_details = None
+
+        # Check if results paths are available in session state
+        if st.session_state.get("evaluation_results_paths"):
+            # For now, assume the first file contains the relevant data (as per instruction #5)
+            # Paths stored might be relative, so construct absolute path
+            results_file_rel_path_str = st.session_state.evaluation_results_paths[0]
+            results_file_abs_path = COGNIBENCH_ROOT / results_file_rel_path_str
+            logger.info(
+                f"Attempting to load raw task data from: {results_file_abs_path}"
+            )
+
+            try:
+                if results_file_abs_path.is_file():
+                    with open(results_file_abs_path, "r", encoding="utf-8") as f:
+                        raw_data = json.load(f)
+                    # Expecting a list under the 'results' key
+                    if isinstance(raw_data.get("results"), list):
+                        raw_task_data = raw_data["results"]
+                        # Extract task IDs (handle potential 'id' key as fallback, filter None)
+                        task_ids = sorted(
+                            list(
+                                filter(
+                                    None,
+                                    [
+                                        task.get("task_id", task.get("id"))
+                                        for task in raw_task_data
+                                    ],
+                                )
+                            )
+                        )
+                        if not task_ids:
+                            st.warning(
+                                f"No tasks with 'task_id' or 'id' found in the 'results' list of {results_file_abs_path.name}."
+                            )
+                            logger.warning(
+                                f"No task IDs found in {results_file_abs_path}"
+                            )
+                        else:
+                            logger.info(
+                                f"Successfully loaded {len(task_ids)} task IDs from {results_file_abs_path.name}."
+                            )
+                    else:
+                        st.error(
+                            f"Could not find a 'results' list in {results_file_abs_path.name}."
+                        )
+                        logger.error(
+                            f"'results' key not found or not a list in {results_file_abs_path}"
+                        )
+                else:
+                    st.error(f"Results file not found: {results_file_abs_path}")
+                    logger.error(f"Results file not found at {results_file_abs_path}")
+
+            except json.JSONDecodeError:
+                st.error(f"Error decoding JSON from file: {results_file_abs_path.name}")
+                logger.exception(f"JSONDecodeError reading {results_file_abs_path}")
+            except Exception as e:
+                st.error(f"An error occurred while loading task details: {e}")
+                logger.exception(
+                    f"Error loading raw task details from {results_file_abs_path}: {e}"
+                )
+
+        else:
+            # This case might occur if results_df exists but paths were cleared somehow, or if regenerating graphs failed.
+            if st.session_state.get("results_df") is not None:
+                st.warning(
+                    "Results data frame is loaded, but the original results file path is missing. Cannot display detailed task JSON."
+                )
+                logger.warning(
+                    "evaluation_results_paths is missing in session state, cannot load raw JSON."
+                )
+            # If results_df is also None, the main conditional block handles the message.
+
+        # Display selectbox and JSON only if task IDs were successfully loaded
+        if task_ids and raw_task_data:
+            selected_task_id = st.selectbox(
+                "Select Task ID for Detailed View:",
+                options=task_ids,
+                key="detailed_task_id_select",  # Add a key for stability
+            )
+
+            if selected_task_id:
+                # Find the full dictionary for the selected task_id
+                selected_task_details = next(
+                    (
+                        task
+                        for task in raw_task_data
+                        if task.get("task_id", task.get("id")) == selected_task_id
+                    ),
+                    None,  # Default to None if not found
+                )
+
+                if selected_task_details:
+                    st.write(f"**Full JSON for Task:** `{selected_task_id}`")
+                    st.json(selected_task_details, expanded=False)  # Start collapsed
+                    logger.info(
+                        f"Displayed JSON for selected task ID: {selected_task_id}"
+                    )
+                else:
+                    # This case should ideally not happen if selected_task_id comes from task_ids
+                    st.error(
+                        f"Could not find details for selected task ID: {selected_task_id}"
+                    )
+                    logger.error(
+                        f"Task ID {selected_task_id} selected, but details not found in raw_task_data."
+                    )
+        elif st.session_state.get("results_df") is not None:
+            # Only show this info if we have loaded results but couldn't get raw data
+            st.info(
+                "Detailed JSON view requires the original results file to be accessible."
+            )
+
+        # --- Filtered Results Table (Keep this below the JSON viewer) ---
+        st.subheader("Filtered Results Table")  # Add subheader for clarity
         display_cols = {
             "task_id": "Task ID",
             "model_id": "Model",
@@ -1513,14 +2013,36 @@ if st.session_state.results_df is not None:
             "aggregated_score": "Aggregated Score",
             "human_preference": "Human Preference",
             "human_rating": "Human Rating",
-            "prompt": "Prompt",
-            "ideal_response": "Ideal Response",
-            "model_response": "Model Response",
+            # Remove prompt/response from table view as they are large and shown in JSON
+            # "prompt": "Prompt",
+            # "ideal_response": "Ideal Response",
+            # "model_response": "Model Response",
         }
-        cols_to_show = [
-            col for col in display_cols.keys() if col in filtered_df.columns
-        ]
-        st.dataframe(filtered_df[cols_to_show].rename(columns=display_cols))
+        # Add rubric scores and justification if they exist in the filtered_df
+        if not filtered_df.empty:  # Check if filtered_df exists and is not empty
+            # Dynamically add judge rubric scores and justification if present
+            judge_cols = [
+                col for col in filtered_df.columns if col.startswith("judge_")
+            ]
+            for col in judge_cols:
+                # Simple title case formatting for display name
+                display_name = col.replace("judge_", "").replace("_", " ").title()
+                # Add prefix to avoid potential name collisions with original columns
+                display_cols[col] = f"Judge: {display_name}"
+
+            cols_to_show = [
+                col for col in display_cols.keys() if col in filtered_df.columns
+            ]
+            st.dataframe(filtered_df[cols_to_show].rename(columns=display_cols))
+            logger.info("Displayed filtered results DataFrame.")
+        else:
+            # This handles the case where filtered_df might be empty due to filters
+            # The main conditional `if st.session_state.results_df is not None:` handles if df wasn't loaded at all.
+            if (
+                st.session_state.get("results_df") is not None
+            ):  # Check if the base df exists
+                logger.info("Filtered DataFrame is empty, skipping table display.")
+                # No need for a specific message here as the filter warning above covers it.
 
 # Display message if results haven't loaded but paths exist (e.g., error during load)
 elif (
