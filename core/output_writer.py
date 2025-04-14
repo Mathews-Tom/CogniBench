@@ -21,7 +21,7 @@ DATA_DIR = PROJECT_ROOT / "data"
 DEFAULT_EVALUATIONS_FILE_PATH = DATA_DIR / "evaluations.jsonl"  # Default path
 
 # Get logger for this module
-logger = logging.getLogger('backend')
+logger = logging.getLogger("backend")
 
 
 def save_evaluation_result(

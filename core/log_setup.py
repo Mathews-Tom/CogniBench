@@ -20,14 +20,14 @@ def setup_logging(log_level=logging.INFO):
 
     # Define specific log file paths
     backend_log_path = timestamp_log_dir / "backend.log"
-    streamlit_log_path = timestamp_log_dir / "streamlit.log"
+    streamlit_log_path = timestamp_log_dir / "frontend.log"
     # Create formatter
     formatter = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # Create file handlers for backend and streamlit logs
+    # Create file handlers for backend and frontend logs
     backend_file_handler = logging.FileHandler(backend_log_path, encoding="utf-8")
     backend_file_handler.setFormatter(formatter)
     backend_file_handler.setLevel(log_level)
@@ -60,7 +60,7 @@ def setup_logging(log_level=logging.INFO):
     # Prevent backend logs from propagating to the root logger's stream handler if desired
     # backend_logger.propagate = False # Keep True to see WARNING/ERROR on console
 
-    streamlit_logger = logging.getLogger("streamlit")
+    streamlit_logger = logging.getLogger("frontend")
     streamlit_logger.setLevel(log_level)
     streamlit_logger.addHandler(streamlit_file_handler)
     # Prevent streamlit logs from propagating to the root logger's stream handler if desired
