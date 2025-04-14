@@ -141,6 +141,8 @@ def main(args):
                 else None,
                 structured_ideal_cache=structured_ideal_cache,  # Pass cache
             )
+            # --- Explicitly log the result received from the workflow ---
+            logger.debug(f"Task [{task_id}] Model [{model_id}]: Received result from workflow: Type={type(result)}, Value={result}")
 
             # Append the workflow result to the specific task's evaluations list
             if task_id in task_results_map:
