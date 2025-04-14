@@ -204,7 +204,7 @@ sequenceDiagram
 * **E. Output Generation:**
   * **Function:** Formats the final evaluation into machine-readable files.
   * **Formats:** JSON Lines (`.jsonl`) for raw judge outputs, formatted JSON (`.json`) for cleaned evaluations, and a final combined JSON (`.json`) aggregating all data per task. All keys in these files are converted to `snake_case`.
-  * **Content:** The final combined file (`*_final_results.json`) includes `task_id`, `prompt`, `ideal_response`, `final_answer`, `metadata`, and a list of `evaluations` (one per model), each containing `model_id`, `model_response`, `human_evaluation` details, and `judge_evaluation` details (rubric scores, justifications, etc.). Stores the structured output in `Data Storage`.
+  * **Content:** The final combined file (`*_final_results.json`) includes `task_id`, `prompt`, `ideal_response`, `final_answer`, `metadata`, and a list of `evaluations` (one per model), each containing `model_id`, the raw `model_response` text, `human_evaluation` details, and `judge_evaluation` details (rubric scores, justifications, etc.). Stores the structured output in `Data Storage`.
 * **F. Data Storage:**
   * **Function:** Persists all relevant data for tracking, analysis, auditing, and potential future fine-tuning of the Judge LLM.
   * **Technology:** Primarily uses JSON Lines (`.jsonl`) for efficient appending of evaluation results during runs, stored on the filesystem. Formatted JSON (`.json`) versions are generated for readability, and a final combined JSON aggregates results. Databases (SQL/NoSQL) could be integrated for more complex querying and management.
@@ -288,3 +288,4 @@ sequenceDiagram
   - **Graph Regeneration from Existing Data:** Added functionality to regenerate evaluation graphs directly from existing evaluation data without re-running evaluations. Users can select one or more folders containing previous evaluation results (`<BatchName>_final_results.json`) to quickly visualize past results.
   - **Mutually Exclusive Actions:** Implemented a clear UI distinction between "Run Evaluations" and "Recreate Graphs from Existing Data" using a radio button selection. This ensures users explicitly choose one action at a time, preventing confusion and unintended operations.
   - **Folder Sorting by Modification Time:** Enhanced folder selection by sorting available folders based on their modification time, displaying the most recently modified folders at the top for improved usability.
+  - **Human-Readable Duration:** The "Total Evaluation Duration" metric in the UI summary is now displayed in a more readable format (e.g., "1 hr, 2 min, 3 s").
