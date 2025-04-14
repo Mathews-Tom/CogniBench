@@ -70,7 +70,7 @@ st.title("CogniBench Evaluation Runner")
 # logger.info("Streamlit app started.") # Moved to initial setup block
 
 # --- Phase 1: Input Selection ---
-st.header("1. Upload Raw RLHF JSON Data file(s)")  # Renamed header
+st.header("Upload Raw RLHF JSON Data file(s)")  # Renamed header
 
 uploaded_files = st.file_uploader(
     "Select CogniBench JSON batch file(s)",
@@ -121,7 +121,7 @@ AVAILABLE_MODELS = {
     },
 }
 
-st.header("2. Configure Models and Prompts")
+st.header("Configure Models and Prompts")
 
 with st.expander("Model Configurations", expanded=True):
     col_structuring, col_judging = st.columns(2)
@@ -1256,26 +1256,34 @@ if (
     and "raw_results_data" not in st.session_state
 ):
     raw_data_load_success = False
-    results_file_abs_path = None # Initialize path variable
+    results_file_abs_path = None  # Initialize path variable
 
     # Check if the paths list exists and is not empty
     if st.session_state.get("evaluation_results_paths"):
         # Use the absolute path string directly from session state
-        abs_path_str = st.session_state.evaluation_results_paths[0] # Get the stored absolute path string
-        results_file_abs_path = Path(abs_path_str) # Convert string to Path object
-        logger.info(f"Attempting to load raw results data from: {results_file_abs_path}")
+        abs_path_str = st.session_state.evaluation_results_paths[
+            0
+        ]  # Get the stored absolute path string
+        results_file_abs_path = Path(abs_path_str)  # Convert string to Path object
+        logger.info(
+            f"Attempting to load raw results data from: {results_file_abs_path}"
+        )
     else:
-        logger.warning("evaluation_results_paths is empty or missing in session state, cannot load raw data.")
+        logger.warning(
+            "evaluation_results_paths is empty or missing in session state, cannot load raw data."
+        )
 
     # Proceed only if we have a valid path
     if results_file_abs_path:
-        try: # Correctly indented try block
+        try:  # Correctly indented try block
             if results_file_abs_path.is_file():
                 with open(results_file_abs_path, "r", encoding="utf-8") as f:
                     # Store the entire parsed JSON, including summary and results list
                     st.session_state.raw_results_data = json.load(f)
                     # Basic validation
-                    if isinstance(st.session_state.raw_results_data.get("results"), list):
+                    if isinstance(
+                        st.session_state.raw_results_data.get("results"), list
+                    ):
                         logger.info(
                             f"Successfully loaded raw results data from {results_file_abs_path.name}"
                         )
@@ -1289,21 +1297,33 @@ if (
                         )
                         # Keep potentially valid summary data if results list is bad
                         if "results" in st.session_state.raw_results_data:
-                            del st.session_state.raw_results_data["results"] # Remove invalid results
+                            del st.session_state.raw_results_data[
+                                "results"
+                            ]  # Remove invalid results
             else:
                 logger.error(f"Raw results file not found at {results_file_abs_path}")
-                st.warning(f"Could not find the results file ({results_file_abs_path.name}) needed for detailed JSON views.")
+                st.warning(
+                    f"Could not find the results file ({results_file_abs_path.name}) needed for detailed JSON views."
+                )
 
         except json.JSONDecodeError:
-            logger.exception(f"JSONDecodeError reading raw results from {results_file_abs_path}")
-            st.error(f"Error decoding JSON from {results_file_abs_path.name}. Detailed JSON views may be unavailable.")
+            logger.exception(
+                f"JSONDecodeError reading raw results from {results_file_abs_path}"
+            )
+            st.error(
+                f"Error decoding JSON from {results_file_abs_path.name}. Detailed JSON views may be unavailable."
+            )
         except Exception as e:
-            logger.exception(f"Error loading raw results data from {results_file_abs_path}: {e}")
-            st.error(f"An error occurred loading raw results data: {e}. Detailed JSON views may be unavailable.")
+            logger.exception(
+                f"Error loading raw results data from {results_file_abs_path}: {e}"
+            )
+            st.error(
+                f"An error occurred loading raw results data: {e}. Detailed JSON views may be unavailable."
+            )
 
         # Clear the session state variable if loading failed completely
         if not raw_data_load_success and "raw_results_data" in st.session_state:
-             del st.session_state.raw_results_data
+            del st.session_state.raw_results_data
     # Removed duplicated block from previous failed diff
 
 if st.session_state.get("results_df") is not None:
