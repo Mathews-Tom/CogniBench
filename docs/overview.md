@@ -31,7 +31,7 @@ graph LR
     direction LR
 
     %% Core Workflow Components
-    A[Input Data Intake] --> B(Preprocessing: Normalization & LaTeX Conversion);
+    A[Input Data Intake] --> B(Preprocessing: Normalization);
     B --> C["Evaluation Core (LLM Judge)"];
     C --> D[Post-processing & Aggregation];
     D --> E[Output Generation];
@@ -165,9 +165,9 @@ sequenceDiagram
 * **B. Preprocessing Module:**
   * **Function:** Prepares inputs for the Judge LLM.
   * **Sub-Tasks:**
-    * *Format Normalization:* Basic text normalization (Unicode, whitespace).
-    * *LaTeX Notation Conversion:* Robust handling of LaTeX math notation, converting various wrappers (`$...$`, `$$...$$`, `\(...\)`, `\[...\]`) into standardized formats for consistent downstream processing.
-    * *Model Final Answer Extraction:* Significantly expanded regex patterns explicitly covering "**Answer:**", "**Conclusion:**", "**Exact Answer:**", and LaTeX boxed notation (`\boxed{}`). Improved heuristic logic to accurately handle multi-line and markdown-formatted answers. Enhanced logging for detailed debugging and transparency during the extraction process.
+    * *Format Normalization:* Basic text normalization (Unicode, whitespace). This is the primary preprocessing step applied before structuring.
+    * *(Removed)* LaTeX Notation Conversion: This was previously handled here but is now removed.
+    * *(Removed)* Model Final Answer Extraction (Regex): This was previously handled here but is now removed. The structuring LLM is now responsible for extracting the final answer.
     * *(Future) Response Segmentation:* (Not currently implemented) Could break down responses into logical sections.
     * *(Future) Sanitization:* (Not currently implemented) Could remove sensitive content if needed.
 * **C. Evaluation Core (LLM Judge):**
@@ -197,7 +197,7 @@ sequenceDiagram
 * **D. Post-processing & Aggregation:**
   * **Function:** Refines and aggregates the raw evaluation results.
   * **Sub-Tasks:**
-    * *Final Answer Verification:* Compares the `Model Final Answer` (extracted during Preprocessing) with the ground-truth `final_answer`. Uses `sympy` (if available) for mathematical/symbolic equivalence checking (including LaTeX parsing), falling back to normalized string comparison otherwise.
+    * *Final Answer Verification:* Compares the `final_answer` (extracted by the *Structuring LLM*) with the ground-truth `final_answer`. Uses `sympy` (if available) for mathematical/symbolic equivalence checking (including LaTeX parsing), falling back to normalized string comparison otherwise.
     * *Consistency Checks (Optional):* Implement checks, e.g., if `Results Formulae` is 'No' due to final answer mismatch, ensure justification aligns. Could involve rule-based checks or even another LLM call for self-consistency review.
     * *Score Aggregation:* Calculate summary statistics if needed (e.g., total L1 'Yes' count). Determine an overall PASS/FAIL based on predefined rules (e.g., requires 'Yes' on all L1 parameters, or specific combinations). The reference doc suggests *any* 'No' results in overall failure for that component.
     * *Human Review Flags:* Identify evaluations needing human review based on parsing errors, trivial justifications for negative/partial scores, or potentially other configurable rules (e.g., answer mismatches).
