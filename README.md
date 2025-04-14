@@ -35,10 +35,10 @@ Evaluating LLMs on complex reasoning tasks, especially in specialized fields lik
   * **Folder Sorting by Modification Time:** Enhanced folder selection by sorting available folders based on their modification time, displaying the most recently modified folders at the top for improved usability.
 * **Data Management:** Structured way to handle prompts, ideal responses, model responses, and evaluation results. Output files are organized into timestamped subdirectories for each batch run.
 * **Batch Processing:** Includes scripts for ingesting raw data and running evaluations on entire batches.
-* **Combined Results:** Generates a final JSON file grouping results by task for easier comparison across models.
+* **Combined Results:** Generates a final JSON file (`_final_results.json`) grouping results by task for easier comparison across models. This file now includes the raw `model_response` text alongside structured and judged evaluations.
 * **Configurable Logging:** Timestamped log files and configurable console output levels. Includes detailed logs for structuring and judging LLM calls within the core workflow. Logs are now stored in timestamped directories (e.g., `logs/YYYYMMDD_HHMM/`) with separate files for backend (`backend.log`) and Streamlit (`streamlit.log`) operations.
 * **API Interface:** (Optional) Provides an API for programmatic interaction (loads config on startup).
-* **Streamlit UI:** A user-friendly interface (`streamlit_app/`) for uploading batch files, configuring the judge (provider, model, template, API key), viewing the configuration summary and files (selected prompt template, `config.yaml`) in expandable sections, running evaluations (with dynamic spinner, progress bar, live log output, and a "Stop Processing" button to gracefully interrupt evaluations), viewing persistent logs, and visualizing results (overall performance, rubric breakdown per criterion/model, human review status counts, and explorers for all tasks and those needing review). Additionally, introduced a global `COLOR_MAP` constant for consistent and clear graph coloring across the application.
+* **Streamlit UI:** A user-friendly interface (`streamlit_app/`) for uploading batch files, configuring the judge (provider, model, template, API key), viewing the configuration summary and files (selected prompt template, `config.yaml`) in expandable sections, running evaluations (with dynamic spinner, progress bar, live log output, and a "Stop Processing" button to gracefully interrupt evaluations), viewing persistent logs, and visualizing results (overall performance, rubric breakdown per criterion/model, human review status counts, and explorers for all tasks and those needing review). The UI now displays the "Total Evaluation Duration" in a human-readable format (e.g., "1 hr, 2 min, 3 s"). Additionally, introduced a global `COLOR_MAP` constant for consistent and clear graph coloring across the application.
 
 ## Project Structure
 
@@ -59,7 +59,7 @@ CogniBench/
 │       ├── Batch-XXX_ingested_YYYYMMDD_HHMM.json # Ingested data ready for evaluation
 │       ├── Batch-XXX_evaluations.jsonl         # Detailed evaluation results (JSON Lines)
 │       ├── Batch-XXX_evaluations_formatted.json # Formatted JSON version of evaluations
-│       └── Batch-XXX_final_results.json        # Combined ingested data + evaluations, grouped by task
+│       └── Batch-XXX_final_results.json        # Combined ingested data + evaluations (including raw model_response), grouped by task
 ├── logs/                 # Log files directory
 │   └── YYYYMMDD_HHMM/    # Timestamped directory for each run
 │       ├── backend.log   # Logs from core scripts, API, etc.
@@ -74,7 +74,7 @@ CogniBench/
 ├── .python-version       # Specifies Python version (likely for pyenv)
 ├── Dockerfile            # Containerization configuration
 ├── LICENSE               # Project license information
-├── overview.md           # High-level overview document
+├── docs/overview.md      # High-level overview document (in docs/)
 ├── pyproject.toml        # Project metadata and dependencies (PEP 621)
 ├── README.md             # This file
 ├── roadmap.md            # Project roadmap and future plans
