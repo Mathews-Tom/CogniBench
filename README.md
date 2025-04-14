@@ -139,6 +139,43 @@ This script will:
 6. Log detailed output to a timestamped file in `logs/`.
 7. Display a `tqdm` progress bar on the console during the evaluation step.
 
+## Troubleshooting
+
+If you encounter errors when running evaluation scripts (`run_single_evaluation.py` or `run_batch_evaluation.py`), particularly after a fresh clone or environment setup, follow these steps:
+
+1. **Check Dependencies:** The most common issue after cloning is missing dependencies. Ensure you have installed `uv` and then installed the project requirements from the `CogniBench` directory:
+
+    ```bash
+    # Ensure uv is installed (if not already)
+    pip install uv
+    # Sync dependencies using the lock file
+    uv pip sync
+    # Install the CogniBench package itself in editable mode
+    uv pip install -e .
+    ```
+
+    *Initial errors like `ModuleNotFoundError: No module named 'core'` or failures immediately upon running the script often point to missing dependencies or the local package not being installed correctly.*
+
+2. **Verify Python Path for Subprocesses:** The `run_batch_evaluation.py` script calls `run_single_evaluation.py` as a subprocess. Python needs to correctly resolve the project's internal modules (like `core`) within this subprocess. If you encounter `ModuleNotFoundError: No module named 'core'` specifically when running the batch script, it might be due to path issues in the subprocess.
+
+    * **Solution:** Ensure `run_batch_evaluation.py` invokes the single evaluation script using Python's module execution flag (`-m`). The script has been updated to do this, but verify the `evaluation_command` list (around line 357) looks like this:
+
+        ```python
+        evaluation_command = [
+            sys.executable,
+            "-m", # Module execution flag
+            "scripts.run_single_evaluation", # Module path
+            "--config",
+            # ... other args
+        ]
+        ```
+
+    * *This ensures the subprocess inherits or correctly determines the necessary paths to find modules like `core`.*
+
+3. **Check Log Files:** If errors persist, examine the detailed log files. The logging setup (`core/log_setup.py`) creates timestamped directories within `CogniBench/logs/` (e.g., `logs/YYYYMMDD_HHMM/`). Check the `backend.log` file within the relevant timestamped directory for specific error messages or tracebacks from the workflow.
+
+4. **Use the Correct Workflow:** For standard end-to-end evaluations, always use the `run_batch_evaluation.py` script with your raw input data file (e.g., `../Task_JSONs/single_task.json`). Avoid calling `run_single_evaluation.py` directly unless you are working with already ingested data and understand the required arguments (like `--input-data` and `--output-jsonl`). The batch script handles the creation of necessary directories and intermediate files.
+
 ## Contributing
 
 Please refer to `CONTRIBUTING.md` (if available) for guidelines on how to contribute to CogniBench.

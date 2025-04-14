@@ -19,7 +19,6 @@ except ImportError:
 # Setup logging first
 setup_logging()
 logger = logging.getLogger('backend')
-logger = logging.getLogger(__name__)
 
 
 def load_config(config_path: Path):
@@ -207,3 +206,4 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     main(args)
+

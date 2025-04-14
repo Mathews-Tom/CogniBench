@@ -355,8 +355,9 @@ if __name__ == "__main__":
     # Path to the single evaluation script within the same scripts directory
     evaluation_script_path = Path(__file__).parent / "run_single_evaluation.py"
     evaluation_command = [
-        sys.executable,
-        str(evaluation_script_path),
+        sys.executable, # Keep using the same python interpreter
+        "-m", # Add the module flag
+        "scripts.run_single_evaluation", # Use module path instead of file path
         "--config",
         str(config_path),
         "--input-data",
