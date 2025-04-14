@@ -15,17 +15,13 @@ Evaluating LLMs on complex reasoning tasks, especially in specialized fields lik
 
 * **LLM-as-a-Judge Evaluation:** Leverages a powerful LLM to assess the quality and correctness of other LLMs' responses.
 * **Specialized Domain Focus:** Tailored for evaluating performance on advanced Math & STE problems.
-* **Modular Workflow:** Clearly defined steps for preprocessing (including LaTeX conversion), LLM invocation, response parsing, evaluation, and postprocessing.
+* **Modular Workflow:** Clearly defined steps for preprocessing (text normalization), structuring (LLM-based extraction), judging (LLM-based evaluation), and postprocessing (verification, aggregation).
 * **Configurable Evaluation:**
   * Judge LLM (provider, model), prompt template, expected rubric criteria, and allowed scores are defined in `config.yaml`. The judging and structuring prompts have been updated to align precisely with these rubric criteria, ensuring consistency and accuracy in evaluations.
   * Support structure for multiple LLM providers (OpenAI, Anthropic, Google placeholders).
   * Configuration validation on script startup.
-* **Robust Answer Verification and LaTeX Handling:**
-  * Enhanced preprocessing module with robust LaTeX notation handling, converting various wrappers (`$...$`, `$$...$$`, `\(...\)`, `\[...\]`) into standardized formats.
-  * Significantly expanded regex patterns for final answer extraction, explicitly covering "**Answer:**", "**Conclusion:**", "**Exact Answer:**", and LaTeX boxed notation (`\boxed{}`).
-  * Improved heuristic logic to accurately handle multi-line and markdown-formatted answers.
-  * Enhanced logging for detailed debugging and transparency during the extraction process.
-  * Mathematical equivalence checking using `sympy` (if installed) for accurate verification of math/symbolic answers, with fallback to string comparison.
+* **Robust Answer Verification:**
+  * Mathematical equivalence checking using `sympy` (if installed) for accurate verification of math/symbolic answers (comparing the `final_answer` extracted by the structuring LLM against the correct answer), with fallback to string comparison.
   * Recommended temperature setting for evaluations is `0.0` to ensure deterministic, consistent, and reproducible outputs.
 * **Improved Error Handling:** Response parser reports all validation errors found, not just the first.
 

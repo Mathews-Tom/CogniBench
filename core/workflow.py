@@ -13,13 +13,12 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+
 from .llm_clients.base import BaseLLMClient
 from .llm_clients.openai_client import OpenAIClient
 from .output_writer import save_evaluation_result
 from .postprocessing import perform_postprocessing
 from .preprocessing import (
-    convert_math_notation,
-    extract_final_answer,
     normalize_text_formats,
 )
 from .prompt_templates import load_prompt_template
@@ -310,7 +309,6 @@ def run_evaluation_workflow(
 
         norm_prompt_content = normalize_text_formats(prompt)
         norm_correct_answer_text = normalize_text_formats(correct_answer)
-        extracted_answer = extract_final_answer(norm_model_response_text)
 
         prompt_template = load_prompt_template(prompt_template_path)
         if prompt_template is None:
@@ -346,7 +344,7 @@ def run_evaluation_workflow(
             ideal_resp_str_for_prompt = json.dumps(ideal_resp_content, ensure_ascii=False)
         else:
             ideal_resp_str_for_prompt = str(ideal_resp_content)
-        
+
         # --- Log values before formatting judge prompt ---
         logger.debug(f"Task [{task_id}] Model [{model_id}]: Preparing judge prompt. Template path: {prompt_template_path}")
         # logger.debug(f"Task [{task_id}] Model [{model_id}]: Template content: {prompt_template}") # Optional: Log template if needed, can be long
@@ -404,7 +402,7 @@ def run_evaluation_workflow(
 
         postprocessing_results = perform_postprocessing(
             parsed_judge_response=parsed_data,
-            extracted_final_answer=extracted_answer,
+            structured_model_response_obj=structured_model_response_obj,
             correct_final_answer=norm_correct_answer_text,
             config=config,
         )

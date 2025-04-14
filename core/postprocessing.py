@@ -362,7 +362,7 @@ def aggregate_scores(
 
 def perform_postprocessing(
     parsed_judge_response: Dict[str, Any],
-    extracted_final_answer: Optional[str],
+    structured_model_response_obj: Optional[Dict[str, Any]], # Changed parameter
     correct_final_answer: Optional[str],
     config: Dict[str, Any],
 ) -> Dict[str, Any]:
@@ -370,21 +370,22 @@ def perform_postprocessing(
     Orchestrates all post-processing steps for a single evaluation.
 
     This function coordinates the analysis of the parsed judge response and
-    the extracted final answer. It performs:
+    the final answer derived from the structured model response. It performs:
     1.  Checks for parsing errors reported by `parse_judge_response`.
-    2.  Verifies the extracted final answer against the correct answer using
+    2.  Extracts the `final_answer` field from the structured model response object.
+    3.  Verifies this extracted final answer against the correct answer using
         `verify_final_answer`.
-    3.  Aggregates scores and performs consistency checks using `aggregate_scores`
+    4.  Aggregates scores and performs consistency checks using `aggregate_scores`
         (only if parsing was successful).
-    4.  Consolidates results, including the final verification status, aggregated
+    5.  Consolidates results, including the final verification status, aggregated
         score, human review flag, and reasons for review.
 
     Args:
         parsed_judge_response: The dictionary returned by `parse_judge_response`.
             This dictionary might contain an 'error' key if parsing failed, or
             an 'evaluation' key with the structured rubric scores if successful.
-        extracted_final_answer: The final answer string extracted from the model
-            response during preprocessing, or None.
+        structured_model_response_obj: The dictionary representing the structured
+            output from the structuring LLM (e.g., {"model": "...", "response": {"final_answer": ...}}), or None.
         correct_final_answer: The ground-truth or ideal final answer string, or None.
 
     Returns:
@@ -423,11 +424,31 @@ def perform_postprocessing(
         # Score aggregation is impossible if parsing failed.
         # Still attempt final answer verification below, as it's independent.
         # Cannot aggregate scores if parsing failed
-    # --- 2. Perform Final Answer Verification ---
-    # This runs regardless of parsing success, as it compares extracted vs ideal.
-    logger.debug("Postprocessing step 2: Verifying final answer...")
+    # --- 2. Extract and Verify Final Answer from Structured Response ---
+    # This runs regardless of parsing success.
+    logger.debug("Postprocessing step 2: Extracting and verifying final answer from structured response...")
+    structured_answer_str: Optional[str] = None
+    if isinstance(structured_model_response_obj, dict):
+        response_content = structured_model_response_obj.get("response")
+        if isinstance(response_content, dict):
+            # Get the final_answer field
+            final_answer_value = response_content.get("final_answer")
+            # Ensure it's a string for verification
+            if final_answer_value is not None:
+                 structured_answer_str = str(final_answer_value)
+            else:
+                 logger.warning("Structured response dictionary is missing 'final_answer' key.")
+        elif isinstance(response_content, str):
+            # Handle case where structuring failed and 'response' is the raw string or error message
+            logger.warning("Structured response object contained raw string/error instead of dict. Cannot extract structured final answer for verification.")
+        else:
+             logger.warning("Structured response object's 'response' field is not a dictionary or string. Cannot extract structured final answer.")
+    else:
+        logger.warning("Structured response object was not provided or not a dictionary. Cannot extract structured final answer.")
+
+    # Perform verification using the extracted structured answer
     verified, message = verify_final_answer(
-        extracted_final_answer, correct_final_answer
+        structured_answer_str, correct_final_answer
     )
     postprocessing_results["final_answer_verified"] = verified
     postprocessing_results["verification_message"] = message
