@@ -19,7 +19,7 @@ import traceback
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 # Setup logger for this module *before* potential logging during imports
-logger = logging.getLogger('backend')
+logger = logging.getLogger("backend")
 
 
 # Attempt to import sympy for mathematical comparison
@@ -27,13 +27,8 @@ try:
     import sympy
 
     # Import specific sympy components needed
-    from sympy import (
-        Basic,
-        N,
-        SympifyError,  # N for numerical eval
-        simplify,
-        sympify,
-    )
+    from sympy import SympifyError  # N for numerical eval
+    from sympy import Basic, N, simplify, sympify
     from sympy.parsing.latex import parse_latex
 
     SYMPY_AVAILABLE = True
@@ -362,7 +357,7 @@ def aggregate_scores(
 
 def perform_postprocessing(
     parsed_judge_response: Dict[str, Any],
-    structured_model_response_obj: Optional[Dict[str, Any]], # Changed parameter
+    structured_model_response_obj: Optional[Dict[str, Any]],  # Changed parameter
     correct_final_answer: Optional[str],
     config: Dict[str, Any],
 ) -> Dict[str, Any]:
@@ -426,7 +421,9 @@ def perform_postprocessing(
         # Cannot aggregate scores if parsing failed
     # --- 2. Extract and Verify Final Answer from Structured Response ---
     # This runs regardless of parsing success.
-    logger.debug("Postprocessing step 2: Extracting and verifying final answer from structured response...")
+    logger.debug(
+        "Postprocessing step 2: Extracting and verifying final answer from structured response..."
+    )
     structured_answer_str: Optional[str] = None
     if isinstance(structured_model_response_obj, dict):
         response_content = structured_model_response_obj.get("response")
@@ -435,21 +432,27 @@ def perform_postprocessing(
             final_answer_value = response_content.get("final_answer")
             # Ensure it's a string for verification
             if final_answer_value is not None:
-                 structured_answer_str = str(final_answer_value)
+                structured_answer_str = str(final_answer_value)
             else:
-                 logger.warning("Structured response dictionary is missing 'final_answer' key.")
+                logger.warning(
+                    "Structured response dictionary is missing 'final_answer' key."
+                )
         elif isinstance(response_content, str):
             # Handle case where structuring failed and 'response' is the raw string or error message
-            logger.warning("Structured response object contained raw string/error instead of dict. Cannot extract structured final answer for verification.")
+            logger.warning(
+                "Structured response object contained raw string/error instead of dict. Cannot extract structured final answer for verification."
+            )
         else:
-             logger.warning("Structured response object's 'response' field is not a dictionary or string. Cannot extract structured final answer.")
+            logger.warning(
+                "Structured response object's 'response' field is not a dictionary or string. Cannot extract structured final answer."
+            )
     else:
-        logger.warning("Structured response object was not provided or not a dictionary. Cannot extract structured final answer.")
+        logger.warning(
+            "Structured response object was not provided or not a dictionary. Cannot extract structured final answer."
+        )
 
     # Perform verification using the extracted structured answer
-    verified, message = verify_final_answer(
-        structured_answer_str, correct_final_answer
-    )
+    verified, message = verify_final_answer(structured_answer_str, correct_final_answer)
     postprocessing_results["final_answer_verified"] = verified
     postprocessing_results["verification_message"] = message
 
@@ -708,6 +711,41 @@ if __name__ == "__main__":
     # This should fallback to string comparison because 'invalid[syntax' cannot be parsed
     results12 = perform_postprocessing(good_parse_input_pass, "invalid[syntax", "x")
     logger.info("Input: %s, Answers: ('invalid[syntax', 'x')", good_parse_input_pass)
+    logger.info("Result:\n%s", json.dumps(results12, indent=2))
+    assert results12["final_answer_verified"] is False  # String comparison fails
+    assert "String" in results12["verification_message"]  # Should indicate fallback
+
+    logger.info("\n--- All Postprocessing Tests Passed (Implicitly) ---")
+    logger.info("Result:\n%s", json.dumps(results12, indent=2))
+    assert results12["final_answer_verified"] is False  # String comparison fails
+    assert "String" in results12["verification_message"]  # Should indicate fallback
+
+    logger.info("\n--- All Postprocessing Tests Passed (Implicitly) ---")
+    logger.info("Result:\n%s", json.dumps(results12, indent=2))
+    assert results12["final_answer_verified"] is False  # String comparison fails
+    assert "String" in results12["verification_message"]  # Should indicate fallback
+
+    logger.info("\n--- All Postprocessing Tests Passed (Implicitly) ---")
+    logger.info("Result:\n%s", json.dumps(results12, indent=2))
+    assert results12["final_answer_verified"] is False  # String comparison fails
+    assert "String" in results12["verification_message"]  # Should indicate fallback
+
+    logger.info("\n--- All Postprocessing Tests Passed (Implicitly) ---")
+    logger.info("Result:\n%s", json.dumps(results12, indent=2))
+    assert results12["final_answer_verified"] is False  # String comparison fails
+    assert "String" in results12["verification_message"]  # Should indicate fallback
+
+    logger.info("\n--- All Postprocessing Tests Passed (Implicitly) ---")
+    logger.info("Result:\n%s", json.dumps(results12, indent=2))
+    assert results12["final_answer_verified"] is False  # String comparison fails
+    assert "String" in results12["verification_message"]  # Should indicate fallback
+
+    logger.info("\n--- All Postprocessing Tests Passed (Implicitly) ---")
+    logger.info("Result:\n%s", json.dumps(results12, indent=2))
+    assert results12["final_answer_verified"] is False  # String comparison fails
+    assert "String" in results12["verification_message"]  # Should indicate fallback
+
+    logger.info("\n--- All Postprocessing Tests Passed (Implicitly) ---")
     logger.info("Result:\n%s", json.dumps(results12, indent=2))
     assert results12["final_answer_verified"] is False  # String comparison fails
     assert "String" in results12["verification_message"]  # Should indicate fallback

@@ -16,7 +16,7 @@ import unicodedata
 from typing import List, Optional, Pattern
 
 # Setup logger for this module
-logger = logging.getLogger('backend')
+logger = logging.getLogger("backend")
 
 
 def safe_json_parse(json_string: str) -> Optional[dict]:
@@ -43,7 +43,6 @@ def safe_json_parse(json_string: str) -> Optional[dict]:
         return None
 
 
-
 def extract_structured_response(response_text: str) -> Optional[str]:
     """
     Attempts to parse structured JSON response and extract the final answer.
@@ -61,7 +60,6 @@ def extract_structured_response(response_text: str) -> Optional[str]:
             logger.info("Successfully extracted final answer from structured JSON.")
             return final_answer.strip()
     return None
-
 
 
 def normalize_text_formats(text: Optional[str]) -> Optional[str]:

@@ -15,7 +15,7 @@ Evaluating LLMs on complex reasoning tasks, especially in specialized fields lik
 
 * **LLM-as-a-Judge Evaluation:** Leverages a powerful LLM to assess the quality and correctness of other LLMs' responses.
 * **Specialized Domain Focus:** Tailored for evaluating performance on advanced Math & STE problems.
-* **Modular Workflow:** Clearly defined steps for preprocessing (text normalization), structuring (LLM-based extraction), judging (LLM-based evaluation), and postprocessing (verification, aggregation).
+* **Modular Workflow:** Clearly defined steps for preprocessing (primarily text normalization), structuring (LLM-based extraction of key elements including the final answer), judging (LLM-based evaluation), and postprocessing (verification of the LLM-extracted answer, aggregation).
 * **Configurable Evaluation:**
   * Judge LLM (provider, model), prompt template, expected rubric criteria, and allowed scores are defined in `config.yaml`. The judging and structuring prompts have been updated to align precisely with these rubric criteria, ensuring consistency and accuracy in evaluations.
   * Support structure for multiple LLM providers (OpenAI, Anthropic, Google placeholders).
