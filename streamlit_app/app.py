@@ -1012,21 +1012,21 @@ if st.session_state.get("evaluation_running", False):
                     "Could not find paths to results files in the logs. Cannot calculate averages or display graphs."  # Updated warning
                 )
 
-            # Format duration human-readably
-            parts = []
-            hours, rem = divmod(duration_seconds, 3600)
-            minutes, seconds_rem = divmod(rem, 60)
-            if hours >= 1:
-                parts.append(f"{int(hours)} hour{'s' if int(hours) != 1 else ''}")
-            if minutes >= 1:
-                parts.append(f"{int(minutes)} minute{'s' if int(minutes) != 1 else ''}")
-            if (
-                seconds_rem >= 1 or not parts
-            ):  # Show seconds if > 0 or if it's the only unit
-                parts.append(
-                    f"{int(seconds_rem)} second{'s' if int(seconds_rem) != 1 else ''}"
-                )
-            st.session_state.eval_duration_str = ", ".join(parts)
+            # Format duration human-readably (hr, min, s)
+            duration_display_str = "N/A"
+            if isinstance(duration_seconds, (int, float)) and duration_seconds >= 0:
+                seconds_int = int(duration_seconds)
+                hours, remainder = divmod(seconds_int, 3600)
+                minutes, seconds = divmod(remainder, 60)
+                parts = []
+                if hours > 0:
+                    parts.append(f"{hours} hr{'s' if hours != 1 else ''}")
+                if minutes > 0:
+                    parts.append(f"{minutes} min{'s' if minutes != 1 else ''}")
+                if seconds > 0 or not parts: # Show seconds if > 0 or if it's the only unit
+                    parts.append(f"{seconds} s")
+                duration_display_str = ", ".join(parts) if parts else "0 s"
+            st.session_state.eval_duration_str = duration_display_str
 
             # API calls are now retrieved from summary_data
             structuring_calls = st.session_state.get("summary_data", {}).get(
@@ -1335,9 +1335,21 @@ if st.session_state.get("results_df") is not None:
     # --- Display Summary Metrics (Loaded Data) ---
     summary_data = st.session_state.get("summary_data", {})
     logger.info(f"Summary data from session state: {summary_data}")  # Add logging
-    # Use correct key from JSON
+    # Use correct key from JSON and format duration
     total_duration_s = summary_data.get("total_evaluation_time_seconds", 0.0)
-    total_duration_display = f"{total_duration_s:.1f}s" if total_duration_s else "N/A"
+    total_duration_display = "N/A"
+    if isinstance(total_duration_s, (int, float)) and total_duration_s >= 0:
+        seconds_int = int(total_duration_s)
+        hours, remainder = divmod(seconds_int, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        parts = []
+        if hours > 0:
+            parts.append(f"{hours} hr{'s' if hours != 1 else ''}")
+        if minutes > 0:
+            parts.append(f"{minutes} min{'s' if minutes != 1 else ''}")
+        if seconds > 0 or not parts: # Show seconds if > 0 or if it's the only unit
+            parts.append(f"{seconds} s")
+        total_duration_display = ", ".join(parts) if parts else "0 s"
     # Use correct key from JSON
     total_tasks_display = summary_data.get(
         "total_tasks_processed", "N/A"
