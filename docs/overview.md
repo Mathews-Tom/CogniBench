@@ -167,7 +167,7 @@ sequenceDiagram
   * **Sub-Tasks:**
     * *Format Normalization:* Basic text normalization (Unicode, whitespace). This is the primary preprocessing step applied before structuring.
     * *(Removed)* LaTeX Notation Conversion: This was previously handled here but is now removed.
-    * *(Removed)* Model Final Answer Extraction (Regex): This was previously handled here but is now removed. The structuring LLM is now responsible for extracting the final answer.
+    * *(Removed)* Model Final Answer Extraction (Regex): Previously done via regex patterns. This step is **removed**; the **Structuring LLM** is now solely responsible for identifying and extracting the `final_answer` from the model's response during the structuring phase.
     * *(Future) Response Segmentation:* (Not currently implemented) Could break down responses into logical sections.
     * *(Future) Sanitization:* (Not currently implemented) Could remove sensitive content if needed.
 * **C. Evaluation Core (LLM Judge):**
@@ -197,7 +197,7 @@ sequenceDiagram
 * **D. Post-processing & Aggregation:**
   * **Function:** Refines and aggregates the raw evaluation results.
   * **Sub-Tasks:**
-    * *Final Answer Verification:* Compares the `final_answer` (extracted by the *Structuring LLM*) with the ground-truth `final_answer`. Uses `sympy` (if available) for mathematical/symbolic equivalence checking (including LaTeX parsing), falling back to normalized string comparison otherwise.
+    * *Final Answer Verification:* Compares the `final_answer` (extracted by the **Structuring LLM** as part of the structured response object) with the ground-truth `final_answer` (from the ingested data). Uses `sympy` (if available) for mathematical/symbolic equivalence checking (including LaTeX parsing), falling back to normalized string comparison otherwise.
     * *Consistency Checks (Optional):* Implement checks, e.g., if `Results Formulae` is 'No' due to final answer mismatch, ensure justification aligns. Could involve rule-based checks or even another LLM call for self-consistency review.
     * *Score Aggregation:* Calculate summary statistics if needed (e.g., total L1 'Yes' count). Determine an overall PASS/FAIL based on predefined rules (e.g., requires 'Yes' on all L1 parameters, or specific combinations). The reference doc suggests *any* 'No' results in overall failure for that component.
     * *Human Review Flags:* Identify evaluations needing human review based on parsing errors, trivial justifications for negative/partial scores, or potentially other configurable rules (e.g., answer mismatches).
