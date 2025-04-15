@@ -27,8 +27,13 @@ try:
     import sympy
 
     # Import specific sympy components needed
-    from sympy import SympifyError  # N for numerical eval
-    from sympy import Basic, N, simplify, sympify
+    from sympy import (
+        Basic,
+        N,
+        SympifyError,  # N for numerical eval
+        simplify,
+        sympify,
+    )
     from sympy.parsing.latex import parse_latex
 
     SYMPY_AVAILABLE = True
@@ -45,26 +50,44 @@ except ImportError:
 
 def safe_sympy_parse(expr_str: str) -> Optional[Basic]:
     """
-    Safely parse a mathematical expression string using SymPy, handling empty or malformed inputs gracefully.
+    Safely parse a mathematical expression string using SymPy.
+
+    Handles empty strings, standard Python math syntax (requires replacing '^' with '**'),
+    and attempts to parse LaTeX format as a fallback.
 
     Args:
-        expr_str (str): The mathematical expression string to parse.
+        expr_str: The mathematical expression string to parse.
 
     Returns:
-        Optional[Basic]: Parsed SymPy expression if successful, None otherwise.
+        Parsed SymPy expression if successful, None otherwise.
     """
-    if not expr_str.strip():
-        logger.warning("SymPy parsing failed: Empty expression string.")
+    if not expr_str or not expr_str.strip():
+        logger.debug("SymPy parsing skipped: Empty expression string provided.")
         return None
     try:
-        expr = sympify(expr_str.replace("^", "**"))
-        return expr
-    except (SympifyError, TypeError, SyntaxError):
+        # Replace standard exponentiation caret '^' with Python's '**' before parsing
+        # This allows parsing expressions like 'x^2' correctly.
+        parsed_expr = sympify(expr_str.replace("^", "**"))
+        logger.debug("Successfully parsed '%s' using sympify.", expr_str)
+        return parsed_expr
+    except (SympifyError, TypeError, SyntaxError) as e_std:
+        logger.debug(
+            "Standard SymPy parsing failed for '%s' (%s). Attempting LaTeX parse.",
+            expr_str,
+            e_std,
+        )
         try:
-            expr = parse_latex(expr_str)
-            return expr
-        except Exception as e:
-            logger.warning(f"SymPy parsing failed: {str(e)}")
+            # Fallback: Attempt to parse the string as LaTeX
+            parsed_expr = parse_latex(expr_str)
+            logger.debug("Successfully parsed '%s' using parse_latex.", expr_str)
+            return parsed_expr
+        except Exception as e_latex:
+            # Catches errors from parse_latex (e.g., LaTeXParsingError, TypeError)
+            logger.warning(
+                "SymPy parsing failed for '%s' using both standard and LaTeX methods. Error: %s",
+                expr_str,
+                e_latex,
+            )
             return None
 
 
@@ -96,91 +119,106 @@ def normalize_answer(answer: Optional[str]) -> Optional[str]:
     return answer.lower().strip()
 
 
+def _attempt_sympy_comparison(
+    norm_extracted: str, norm_correct: str
+) -> Tuple[Optional[bool], str]:
+    """
+    Attempts to compare two normalized answer strings using SymPy for mathematical equivalence.
+
+    Args:
+        norm_extracted: Normalized extracted answer string.
+        norm_correct: Normalized correct answer string.
+
+    Returns:
+        A tuple containing:
+        - Comparison result (Optional[bool]): True if equivalent, False if not,
+          None if SymPy comparison could not be performed (e.g., parsing failed).
+        - Comparison method (str): "SymPy" if comparison was successful, "String" if fallback needed.
+    """
+    comparison_method = "SymPy"
+    expr1 = safe_sympy_parse(norm_extracted)
+    expr2 = safe_sympy_parse(norm_correct)
+
+    if expr1 is None or expr2 is None:
+        logger.warning(
+            "SymPy parsing failed for one or both answers ('%s', '%s'). Cannot perform SymPy comparison.",
+            norm_extracted,
+            norm_correct,
+        )
+        return None, "String"  # Indicate fallback needed
+
+    try:
+        # Use expr.equals(other) for robust symbolic comparison.
+        # It checks for mathematical equivalence, handling different forms
+        # (e.g., x+y vs y+x, 2*x vs x*2).
+        # Using simplify(expr1 - expr2) == 0 is an alternative but might fail for
+        # more complex symbolic cases or raise errors during simplification.
+        match = expr1.equals(expr2)
+        logger.debug(
+            "SymPy comparison successful: '%s' vs '%s' -> Match: %s",
+            norm_extracted,
+            norm_correct,
+            match,
+        )
+        return match, comparison_method
+    except Exception as e:
+        logger.warning(
+            "SymPy .equals() comparison failed between '%s' and '%s': %s. Falling back to string comparison.",
+            norm_extracted,
+            norm_correct,
+            e,
+            exc_info=True,  # Include traceback for detailed debugging
+        )
+        return None, "String"  # Indicate fallback needed
+
+
 def verify_final_answer(
     extracted_answer: Optional[str], correct_answer: Optional[str]
 ) -> Tuple[Optional[bool], str]:
-    """Compares the extracted final answer with the correct (ideal) answer.
+    """
+    Compares the extracted final answer with the correct (ideal) answer.
 
-    Attempts mathematical equivalence checking using SymPy if available,
-    otherwise falls back to normalized string comparison.
-
-    Steps:
-    1.  Normalizes both answers using `normalize_answer` (lowercase, stripped).
-    2.  Handles cases where either normalized answer is None (returns skipped).
-    3.  If SymPy is available:
-        a. Attempts to parse both normalized answers using `sympify` (standard)
-            and `parse_latex` (LaTeX fallback).
-        b. If both parse successfully, compares the expressions using `expr1.equals(expr2)`.
-            This checks for symbolic equivalence (e.g., x+y == y+x).
-        c. If symbolic comparison fails or errors, logs a warning and proceeds to fallback.
-    4.  If SymPy is not available OR SymPy parsing/comparison failed:
-        a. Performs direct string comparison of the normalized answers.
-    5.  Formats a message indicating the comparison method and result.
+    Attempts mathematical equivalence checking using SymPy if available and applicable.
+    If SymPy is unavailable, parsing fails, or comparison errors occur, it falls
+    back to normalized string comparison.
 
     Args:
-        extracted_answer: The final answer string extracted from the model's
-            response, or None.
-        correct_answer: The ground-truth or ideal answer string, or None.
+        extracted_answer: The final answer string extracted from the model's response.
+        correct_answer: The ground-truth or ideal answer string.
 
     Returns:
         A tuple containing:
         - Verification result (Optional[bool]): True if match, False if mismatch,
-            None if skipped.
-        - Verification message (str): Describes outcome and method used.
+          None if verification was skipped (e.g., missing input).
+        - Verification message (str): Describes the outcome and the comparison method used.
     """
     norm_extracted = normalize_answer(extracted_answer)
     norm_correct = normalize_answer(correct_answer)
 
     # Handle cases where one or both answers are None after normalization
     if norm_extracted is None:
-        logger.debug("Skipping verification: Extracted answer is None.")
-        return None, "Verification skipped: Extracted answer was None."
+        logger.debug("Skipping verification: Extracted answer is None or empty.")
+        return None, "Verification skipped: Extracted answer was None or empty."
     if norm_correct is None:
-        # Treat comparison against None as skipped, as we can't determine correctness.
-        logger.debug("Skipping verification: Correct answer is None.")
-        return None, "Verification skipped: Correct answer was None."
+        logger.debug("Skipping verification: Correct answer is None or empty.")
+        return None, "Verification skipped: Correct answer was None or empty."
 
-    # --- Attempt SymPy Comparison (if available and applicable) ---
     match: Optional[bool] = None
-    comparison_method = "String"  # Default method
+    comparison_method = "String"  # Default
 
+    # --- Attempt SymPy Comparison ---
     if SYMPY_AVAILABLE:
-        expr1 = safe_sympy_parse(norm_extracted)
-        expr2 = safe_sympy_parse(norm_correct)
-
-        if expr1 is None or expr2 is None:
-            logger.warning(
-                "Failed to parse one or both answers with SymPy. Falling back to string comparison."
-            )
-            match = None
-            comparison_method = "String"
-
-        # If both parsed successfully, compare them
-        if expr1 is not None and expr2 is not None:
-            comparison_method = "SymPy"
-            # Use simplify and equals for robust comparison
-            try:
-                # Alternative: simplify(expr1 - expr2) == 0
-                # Using equals() handles symbolic equality better
-                match = expr1.equals(expr2)
-                logger.debug(
-                    "SymPy comparison: %s vs %s -> Match: %s", expr1, expr2, match
-                )
-            except Exception as e:
-                logger.warning(
-                    "SymPy comparison failed: %s. Falling back to string comparison.",
-                    e,
-                    exc_info=True,
-                )
-                # Fallback to string comparison if SymPy comparison itself errors out
-                match = None
-                comparison_method = "String"  # Revert method
-
-        match = None  # Ensure match is None if SymPy fails
+        sympy_match, comparison_method = _attempt_sympy_comparison(
+            norm_extracted, norm_correct
+        )
+        # If sympy_match is not None, SymPy comparison was successful (True or False)
+        if sympy_match is not None:
+            match = sympy_match
+        # If sympy_match is None, comparison failed or wasn't possible, proceed to string fallback
 
     # --- Fallback to String Comparison ---
-    if match is None:  # If SymPy wasn't used, failed, or comparison errored
-        comparison_method = "String"
+    if match is None:  # Only if SymPy was skipped, failed, or errored
+        comparison_method = "String"  # Ensure method is set to String
         match = norm_extracted == norm_correct
         logger.debug(
             "String comparison: '%s' vs '%s' -> Match: %s",
@@ -189,14 +227,17 @@ def verify_final_answer(
             match,
         )
 
-    # --- Format Message ---
-    # Ensure match is boolean before formatting message
+    # --- Format Result Message ---
+    # At this point, 'match' should be either True or False.
     if match is None:
-        # This case should ideally not be reached if inputs are not None,
-        # but handle defensively.
-        logger.error("Verification ended with match=None unexpectedly.")
-        match = False  # Default to mismatch if something went wrong
-        message = "Verification Error: Comparison resulted in None."
+        # Defensive check: This state should not be reachable if inputs were valid.
+        logger.error(
+            "Internal verification error: 'match' remained None after comparison attempts for '%s' vs '%s'. Defaulting to False.",
+            norm_extracted,
+            norm_correct,
+        )
+        match = False  # Default to mismatch if something unexpected happened
+        message = f"Verification Error ({comparison_method}): Comparison resulted in None. (Extracted: '{norm_extracted}', Correct: '{norm_correct}')."
     else:
         message = (
             f"Verification ({comparison_method}): {'Match' if match else 'Mismatch'} "
@@ -206,317 +247,373 @@ def verify_final_answer(
     return match, message
 
 
+def _check_trivial_justification(
+    criterion: str,
+    score_norm: str,
+    justification: str,
+    consistency_checks: Dict[str, Any],
+) -> Optional[str]:
+    """
+    Checks if a justification for a 'No' or 'Partial' score is potentially trivial (too short).
+
+    Args:
+        criterion: The name of the criterion being checked.
+        score_norm: The normalized score ('yes', 'no', 'partial').
+        justification: The justification text provided.
+        consistency_checks: Configuration dictionary for consistency checks.
+
+    Returns:
+        The criterion name if its justification is flagged as potentially trivial, otherwise None.
+    """
+    # Use attribute access for ConsistencyChecks object
+    if getattr(consistency_checks, 'enable_trivial_justification_check', True):
+        trivial_length_threshold = getattr(consistency_checks,
+            'trivial_justification_length_threshold', MIN_JUSTIFICATION_LENGTH
+        )
+        if (
+            score_norm in ["no", "partial"]
+            and len(justification.strip()) <= trivial_length_threshold
+        ):
+            logger.warning(
+                "Potential trivial justification found for criterion '%s' (Score: %s, Length: %d)",
+                criterion,
+                score_norm.capitalize(),  # Show original case-like score
+                len(justification.strip()),
+            )
+            return criterion
+    return None
+
+
+def _determine_aggregated_score(
+    scores_found: List[str], aggregation_rules: Dict[str, Any]
+) -> Tuple[AggregatedScore, Optional[str]]:
+    """
+    Determines the overall aggregated score based on a list of normalized criterion scores.
+
+    Args:
+        scores_found: List of normalized scores ('yes', 'no', 'partial').
+        aggregation_rules: Configuration dictionary for aggregation rules.
+
+    Returns:
+        A tuple containing:
+        - The final aggregated score ("Pass", "Fail", "Partial").
+        - An optional error message if the aggregation state was inconclusive.
+    """
+    error_msg: Optional[str] = None
+    final_score: AggregatedScore
+
+    # Logic: Fail if any 'no', Partial if any 'partial' (and no 'no'), Pass if all 'yes'.
+    # Use attribute access for AggregationRules object
+    if aggregation_rules.fail_if_any_no and "no" in scores_found:
+        final_score = "Fail"
+    elif (
+        aggregation_rules.partial_if_any_partial
+        and "partial" in scores_found
+    ):
+        final_score = "Partial"
+    elif aggregation_rules.pass_if_all_yes and all(
+        s == "yes" for s in scores_found
+    ): # Assuming scores_found only contains 'yes', 'no', 'partial' after normalization
+        final_score = "Pass"
+    else:
+        # This state might occur if only 'yes' scores are present but pass_if_all_yes is False,
+        # or if the list is empty (though handled earlier), or contains unexpected values.
+        error_msg = f"Inconclusive aggregation state. Scores found: {scores_found}. Defaulting to Fail."
+        logger.error(error_msg)
+        final_score = "Fail"  # Default to Fail in ambiguous cases
+
+    return final_score, error_msg
+
+
 def aggregate_scores(
     parsed_evaluation_content: Dict[str, Dict[str, str]],
     config: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    Aggregates parsed rubric scores and flags potential issues for review based on configurable rules.
+    Aggregates parsed rubric scores and flags potential issues for review.
 
-    This function takes the structured evaluation content (parsed from the judge
-    LLM's response) and aggregation settings from the configuration file, performing the following:
-    1.  Iterates through each criterion and its score/justification.
-    2.  Checks for missing scores, flagging for review if found.
-    3.  Checks if justifications for "No" or "Partial" scores are potentially
-        trivial (based on `MIN_JUSTIFICATION_LENGTH`), flagging for review.
-    4.  Determines an overall `aggregated_score` ("Pass", "Fail", "Partial")
-        based on the individual criterion scores:
-        - "Fail" if any criterion score is "No".
-        - "Partial" if any criterion score is "Partial" (and none are "No").
-        - "Pass" if all criterion scores are "Yes".
-        - Defaults to "Fail" in unexpected scenarios.
-    5.  Collects reasons for why human review might be needed.
+    Iterates through evaluation criteria, checks for missing scores, performs
+    consistency checks (like trivial justifications), determines an overall
+    aggregated score based on configuration rules, and collects reasons for
+    human review.
 
     Args:
-        parsed_evaluation_content: A dictionary where keys are criterion names
-            (str) and values are dictionaries containing at least 'score' (str)
-            and 'justification' (str). Example:
-            `{"Problem Understanding": {"score": "Yes", "justification": "..."}}`
-            Assumes the input structure has been partially validated by the parser,
-            but performs defensive checks.
+        parsed_evaluation_content: Dictionary of criteria evaluations, typically
+            from `response_parser`. Expected format:
+            `{"Criterion Name": {"score": "Yes/No/Partial", "justification": "..."}}`
+        config: Application configuration dictionary, expected to contain
+            `aggregation_settings`.
 
     Returns:
-        A dictionary containing the aggregation results:
-        - 'aggregated_score' (AggregatedScore): "Pass", "Fail", "Partial", or None
-            if aggregation could not be performed.
-        - 'needs_human_review' (bool): True if any checks indicate potential issues.
-        - 'review_reasons' (List[str]): A list of messages explaining why review
-            might be needed.
+        A dictionary containing aggregation results:
+        - 'aggregated_score': "Pass", "Fail", or "Partial".
+        - 'needs_human_review': Boolean flag.
+        - 'review_reasons': List of strings explaining review flags.
     """
-    # Initialize results structure
-    aggregation_rules = config.get("aggregation_settings", {}).get(
-        "aggregation_rules", {}
-    )
-    consistency_checks = config.get("aggregation_settings", {}).get(
-        "consistency_checks", {}
-    )
+    # Use attribute access for AppConfig object
+    aggregation_settings = getattr(config, 'aggregation_settings', None)
+    aggregation_rules = getattr(aggregation_settings, 'aggregation_rules', None) if aggregation_settings else None
+    consistency_checks = getattr(aggregation_settings, 'consistency_checks', None) if aggregation_settings else None
+
+    # Provide default empty objects if settings are missing (though validation should prevent this)
+    if aggregation_rules is None: aggregation_rules = {} # Or use default AggregationRules model
+    if consistency_checks is None: consistency_checks = {} # Or use default ConsistencyChecks model
 
     results: Dict[str, Any] = {
-        "aggregated_score": None,
+        "aggregated_score": "Fail",  # Default to Fail
         "needs_human_review": False,
         "review_reasons": [],
     }
-    scores_found: List[str] = []  # Stores normalized scores ('yes', 'no', 'partial')
-    trivial_justification_criteria: List[
-        str
-    ] = []  # Stores criteria with trivial justifications
+    scores_found: List[str] = []
+    trivial_justification_criteria: List[str] = []
 
     if not parsed_evaluation_content:
         msg = "Aggregation failed: Parsed evaluation content is empty."
         logger.warning(msg)
         results["review_reasons"].append(msg)
         results["needs_human_review"] = True
-        # Cannot determine an aggregated score if there's no content.
-        return results
+        return results  # Return early, default score is Fail
 
+    # --- Iterate and Validate Each Criterion ---
     for criterion, details in parsed_evaluation_content.items():
-        # Assume parser ensures 'details' is a dict, but check keys defensively
-        score_raw: str = details.get("score", "")
+        score_raw: Optional[str] = details.get("score")  # Use Optional for safety
         justification: str = details.get("justification", "")
 
-        # Normalize score for internal logic
-        score_norm: str = score_raw.strip().lower()
-
-        # --- Validation within Aggregation ---
-        if not score_norm:
+        # Normalize score, handle missing score
+        if score_raw is None or not str(score_raw).strip():
             msg = f"Missing or empty score found for criterion '{criterion}' during aggregation."
             logger.warning(msg)
             results["review_reasons"].append(msg)
             results["needs_human_review"] = True
-            # Treat missing score as implicitly 'fail' for aggregation purposes
-            scores_found.append("fail")
-            continue  # Move to the next criterion
+            scores_found.append("fail")  # Treat missing score as 'fail'
+            continue
+        else:
+            score_norm = str(score_raw).strip().lower()
+            # Basic validation against expected values (yes/no/partial)
+            if score_norm not in ["yes", "no", "partial"]:
+                msg = f"Unexpected score value '{score_raw}' found for criterion '{criterion}'. Treating as 'fail'."
+                logger.warning(msg)
+                results["review_reasons"].append(msg)
+                results["needs_human_review"] = True
+                scores_found.append("fail")  # Treat unexpected score as 'fail'
+                continue
 
-        # Store the normalized score for final aggregation
-        scores_found.append(score_norm)
+            scores_found.append(score_norm)
 
-        # Consistency Check: Trivial Justification for Non-"Yes" scores
-        # --- Consistency Check: Trivial Justification ---
-        # Flag if a 'No' or 'Partial' score has a very short justification.
-        if consistency_checks.get("enable_trivial_justification_check", True):
-            trivial_length_threshold = consistency_checks.get(
-                "trivial_justification_length_threshold", MIN_JUSTIFICATION_LENGTH
+            # Check for trivial justification
+            trivial_criterion = _check_trivial_justification(
+                criterion, score_norm, justification, consistency_checks
             )
-            if (
-                score_norm in ["no", "partial"]
-                and len(justification.strip()) <= trivial_length_threshold
-            ):
-                logger.warning(
-                    "Potential trivial justification found for criterion '%s' (Score: %s, Length: %d)",
-                    criterion,
-                    score_raw,
-                    len(justification.strip()),
-                )
-                trivial_justification_criteria.append(criterion)
+            if trivial_criterion:
+                trivial_justification_criteria.append(trivial_criterion)
                 results["needs_human_review"] = True
 
+    # --- Post-Iteration Checks ---
     if not scores_found:
+        # This case occurs if the loop ran but no valid scores were appended (e.g., all were missing/invalid)
         msg = "Aggregation failed: No valid scores were processed from the evaluation content."
-        logger.error(
-            msg
-        )  # This indicates a more severe issue if loop ran but found nothing
+        logger.error(msg)
         results["review_reasons"].append(msg)
         results["needs_human_review"] = True
-        return results
+        return results  # Return early, default score is Fail
 
     # Add reason if trivial justifications were found
     if trivial_justification_criteria:
-        criteria_str = ", ".join(f"'{c}'" for c in trivial_justification_criteria)
+        criteria_str = ", ".join(
+            f"'{c}'" for c in sorted(list(set(trivial_justification_criteria)))
+        )
         results["review_reasons"].append(
             f"Potential trivial justification for 'No'/'Partial' score in criteria: {criteria_str}."
         )
 
-    # --- Determine Aggregated Score ---
-    # Logic: Fail if any 'no', Partial if any 'partial' (and no 'no'), Pass if all 'yes'.
-    final_score: AggregatedScore
-    if aggregation_rules.get("fail_if_any_no", True) and "no" in scores_found:
-        final_score = "Fail"
-    elif (
-        aggregation_rules.get("partial_if_any_partial", True)
-        and "partial" in scores_found
-    ):
-        final_score = "Partial"
-    elif aggregation_rules.get("pass_if_all_yes", True) and all(
-        s == "yes" for s in scores_found
-    ):
-        final_score = "Pass"
-    else:
-        msg = f"Inconclusive aggregation state. Scores found: {scores_found}. Defaulting to Fail."
-        logger.error(msg)
-        results["review_reasons"].append(msg)
-        results["needs_human_review"] = True
-        final_score = "Fail"
-
+    # --- Determine Final Aggregated Score ---
+    final_score, error_msg = _determine_aggregated_score(
+        scores_found, aggregation_rules
+    )
     results["aggregated_score"] = final_score
+    if error_msg:
+        results["review_reasons"].append(error_msg)
+        results["needs_human_review"] = (
+            True  # Flag review if aggregation was inconclusive
+        )
+
     logger.debug(
-        "Score aggregation complete using configurable rules. Result: %s", final_score
+        "Score aggregation complete. Result: %s. Needs Review: %s. Reasons: %s",
+        results["aggregated_score"],
+        results["needs_human_review"],
+        results["review_reasons"],
     )
 
     return results
 
 
+def _extract_final_answer_from_structured(
+    structured_model_response_obj: Optional[Dict[str, Any]],
+) -> Optional[str]:
+    """
+    Safely extracts the 'final_answer' string from a structured model response object.
+
+    Handles cases where the input is not a dict, the 'response' key is missing
+    or not a dict, or the 'final_answer' key is missing or its value is None.
+
+    Args:
+        structured_model_response_obj: The dictionary representing the structured
+            output from the structuring LLM (e.g., {"response": {"final_answer": ...}}).
+
+    Returns:
+        The extracted final answer as a string, or None if it cannot be found or extracted.
+    """
+    if not isinstance(structured_model_response_obj, dict):
+        logger.warning(
+            "Cannot extract final answer: Structured response object was not provided or not a dictionary."
+        )
+        return None
+
+    response_content = structured_model_response_obj.get("response")
+    if not isinstance(response_content, dict):
+        # Handle case where structuring might have failed and 'response' contains an error string
+        # or is otherwise not the expected dictionary.
+        logger.warning(
+            "Cannot extract final answer: Structured response object's 'response' field is not a dictionary (found type: %s).",
+            type(response_content).__name__,
+        )
+        return None
+
+    final_answer_value = response_content.get("final_answer")
+    if final_answer_value is None:
+        logger.warning(
+            "Cannot extract final answer: Structured response dictionary is missing 'final_answer' key or its value is None."
+        )
+        return None
+
+    # Ensure the extracted value is returned as a string
+    return str(final_answer_value)
+
+
 def perform_postprocessing(
     parsed_judge_response: Dict[str, Any],
-    structured_model_response_obj: Optional[Dict[str, Any]],  # Changed parameter
+    structured_model_response_obj: Optional[Dict[str, Any]],
     correct_final_answer: Optional[str],
     config: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    Orchestrates all post-processing steps for a single evaluation.
+    Orchestrates all post-processing steps for a single evaluation result.
 
-    This function coordinates the analysis of the parsed judge response and
-    the final answer derived from the structured model response. It performs:
-    1.  Checks for parsing errors reported by `parse_judge_response`.
-    2.  Extracts the `final_answer` field from the structured model response object.
-    3.  Verifies this extracted final answer against the correct answer using
-        `verify_final_answer`.
-    4.  Aggregates scores and performs consistency checks using `aggregate_scores`
-        (only if parsing was successful).
-    5.  Consolidates results, including the final verification status, aggregated
-        score, human review flag, and reasons for review.
+    Coordinates the analysis of the parsed judge response and the structured
+    model response. It performs:
+    1. Checks for parsing errors from the judge response parser.
+    2. Extracts the final answer from the structured model response.
+    3. Verifies the extracted final answer against the correct answer (using SymPy or string comparison).
+    4. Aggregates rubric scores and performs consistency checks (if parsing succeeded).
+    5. Consolidates results, including verification status, aggregated score,
+       human review flags, and reasons for review.
 
     Args:
-        parsed_judge_response: The dictionary returned by `parse_judge_response`.
-            This dictionary might contain an 'error' key if parsing failed, or
-            an 'evaluation' key with the structured rubric scores if successful.
+        parsed_judge_response: The dictionary returned by `response_parser.parse_judge_response`.
+            May contain 'error' or 'evaluation' keys.
         structured_model_response_obj: The dictionary representing the structured
-            output from the structuring LLM (e.g., {"model": "...", "response": {"final_answer": ...}}), or None.
-        correct_final_answer: The ground-truth or ideal final answer string, or None.
+            output from the structuring LLM (containing the model's final answer).
+        correct_final_answer: The ground-truth or ideal final answer string.
+        config: The application configuration dictionary.
 
     Returns:
-        A dictionary summarizing the post-processing results, containing keys:
-        - 'final_answer_verified' (Optional[bool]): Result of `verify_final_answer`.
-        - 'verification_message' (str): Message from `verify_final_answer`.
-        - 'aggregated_score' (AggregatedScore): Result from `aggregate_scores`, or
-            None if parsing failed.
-        - 'needs_human_review' (bool): Overall flag indicating if review is needed
-            due to parsing errors, aggregation flags, or potentially verification failures.
-        - 'review_reasons' (List[str]): Consolidated list of reasons for review.
-        - 'parsing_error' (Optional[str]): The error message from the parser, if any.
+        A dictionary summarizing the post-processing results:
+        - 'final_answer_verified' (Optional[bool]): Result of answer verification.
+        - 'verification_message' (str): Message describing verification outcome.
+        - 'aggregated_score' (AggregatedScore): Overall score ("Pass", "Fail", "Partial").
+        - 'needs_human_review' (bool): Flag indicating need for human review.
+        - 'review_reasons' (List[str]): List of reasons for the review flag.
+        - 'parsing_error' (Optional[str]): Error message from the parser, if any.
     """
-    # Initialize the results dictionary
     postprocessing_results: Dict[str, Any] = {
         "final_answer_verified": None,
-        "verification_message": "Verification not performed.",  # Default message
-        "aggregated_score": None,
+        "verification_message": "Verification not performed.",
+        "aggregated_score": None,  # Will be set later, default None if parsing fails
         "needs_human_review": False,
         "review_reasons": [],
-        "parsing_error": None,  # Store parser error if present
+        "parsing_error": None,
     }
     logger.debug("Starting postprocessing orchestration...")
 
-    # --- 1. Check for Parsing Errors ---
-    parsing_error: Optional[str] = parsed_judge_response.get("error")
+    # --- 1. Check for Judge Response Parsing Errors ---
+    parsing_error = parsed_judge_response.get("error")
     if parsing_error:
         logger.warning(
-            "Postprocessing step 1: Parsing error detected: %s", parsing_error
+            "Postprocessing: Judge response parsing error detected: %s", parsing_error
         )
         postprocessing_results["parsing_error"] = parsing_error
         postprocessing_results["needs_human_review"] = True
         postprocessing_results["review_reasons"].append(
             f"LLM response parsing failed: {parsing_error}"
         )
-        # Score aggregation is impossible if parsing failed.
-        # Still attempt final answer verification below, as it's independent.
-        # Cannot aggregate scores if parsing failed
-    # --- 2. Extract and Verify Final Answer from Structured Response ---
-    # This runs regardless of parsing success.
-    logger.debug(
-        "Postprocessing step 2: Extracting and verifying final answer from structured response..."
-    )
-    structured_answer_str: Optional[str] = None
-    if isinstance(structured_model_response_obj, dict):
-        response_content = structured_model_response_obj.get("response")
-        if isinstance(response_content, dict):
-            # Get the final_answer field
-            final_answer_value = response_content.get("final_answer")
-            # Ensure it's a string for verification
-            if final_answer_value is not None:
-                structured_answer_str = str(final_answer_value)
-            else:
-                logger.warning(
-                    "Structured response dictionary is missing 'final_answer' key."
-                )
-        elif isinstance(response_content, str):
-            # Handle case where structuring failed and 'response' is the raw string or error message
-            logger.warning(
-                "Structured response object contained raw string/error instead of dict. Cannot extract structured final answer for verification."
-            )
-        else:
-            logger.warning(
-                "Structured response object's 'response' field is not a dictionary or string. Cannot extract structured final answer."
-            )
-    else:
-        logger.warning(
-            "Structured response object was not provided or not a dictionary. Cannot extract structured final answer."
-        )
+        # Aggregation cannot proceed, but verification can still be attempted.
 
-    # Perform verification using the extracted structured answer
-    verified, message = verify_final_answer(structured_answer_str, correct_final_answer)
+    # --- 2. Extract and Verify Final Answer ---
+    # This runs regardless of parsing success, as it uses the structured response.
+    logger.debug("Postprocessing: Extracting and verifying final answer...")
+    extracted_final_answer = _extract_final_answer_from_structured(
+        structured_model_response_obj
+    )
+    verified, message = verify_final_answer(
+        extracted_final_answer, correct_final_answer
+    )
     postprocessing_results["final_answer_verified"] = verified
     postprocessing_results["verification_message"] = message
 
-    # Optional Rule: Flag for review if verification failed. Uncomment if desired.
+    # Optional Rule: Flag for review if verification failed.
+    # Consider making this configurable via `config` if needed.
     # if verified is False:
-    #     logger.warning("Flagging for review due to final answer mismatch.")
-    #     postprocessing_results["needs_human_review"] = True
-    #     if "Final answer verification failed." not in postprocessing_results["review_reasons"]:
-    #          postprocessing_results["review_reasons"].append("Final answer verification failed.")
-
-    # If parsing failed earlier, we cannot proceed to score aggregation. Return now.
-    if parsing_error:
-        logger.debug("Returning early due to parsing error.")
-        # Ensure reasons are unique before returning
-        postprocessing_results["review_reasons"] = sorted(
-            list(set(postprocessing_results["review_reasons"]))
-        )
-        return postprocessing_results
-
-    # --- 3. Perform Score Aggregation and Consistency Checks ---
-    # This only runs if parsing was successful (i.e., no parsing_error).
-    logger.debug("Postprocessing step 3: Aggregating scores...")
-    # Flag for review if verification failed? Optional rule.
-    # if verified is False:
+    #     logger.info("Flagging for review due to final answer mismatch.")
     #     postprocessing_results["needs_human_review"] = True
     #     postprocessing_results["review_reasons"].append("Final answer verification failed.")
 
-    # We checked for parsing error already, so 'evaluation' should exist if no error.
-    # Add defensive check just in case.
-    evaluation_content: Optional[Dict[str, Dict[str, str]]] = parsed_judge_response.get(
-        "evaluation"
-    )
+    # --- 3. Perform Score Aggregation (only if parsing succeeded) ---
+    if not parsing_error:
+        logger.debug("Postprocessing: Aggregating scores...")
+        evaluation_content = parsed_judge_response.get("evaluation")
 
-    if isinstance(evaluation_content, dict):
-        aggregation_results: Dict[str, Any] = aggregate_scores(
-            evaluation_content, config
-        )
-        postprocessing_results["aggregated_score"] = aggregation_results.get(
-            "aggregated_score"
-        )
-
-        # Combine the 'needs_human_review' flag and reasons from aggregation
-        if aggregation_results.get("needs_human_review"):
-            postprocessing_results["needs_human_review"] = True
-            postprocessing_results["review_reasons"].extend(
-                aggregation_results.get("review_reasons", [])
+        if isinstance(evaluation_content, dict):
+            aggregation_results = aggregate_scores(evaluation_content, config)
+            postprocessing_results["aggregated_score"] = aggregation_results.get(
+                "aggregated_score"
             )
-    else:
-        # This case should ideally be caught by the parser, but handle defensively
-        # This case indicates an issue if reached after a successful parse.
-        msg = "Postprocessing error: 'evaluation' content missing or invalid despite successful parsing."
-        logger.error(msg)
-        postprocessing_results["needs_human_review"] = True
-        postprocessing_results["review_reasons"].append(msg)
-        # Assign Fail score if aggregation cannot run due to unexpected missing content
-        postprocessing_results["aggregated_score"] = "Fail"
 
-    # --- Final Consolidation ---
+            # Combine review flags and reasons from aggregation
+            if aggregation_results.get("needs_human_review"):
+                postprocessing_results["needs_human_review"] = True
+                postprocessing_results["review_reasons"].extend(
+                    aggregation_results.get("review_reasons", [])
+                )
+        else:
+            # This indicates an unexpected state: parsing succeeded according to the
+            # `parsed_judge_response` structure (no 'error' key), but the 'evaluation'
+            # key is missing or invalid. This suggests a potential issue in the parser logic
+            # or an unexpected response format that bypassed the parser's checks.
+            msg = "Postprocessing error: 'evaluation' content missing or invalid in successfully parsed judge response."
+            logger.error(msg)
+            postprocessing_results["needs_human_review"] = True
+            postprocessing_results["review_reasons"].append(msg)
+            # Assign a default score if aggregation cannot run due to this unexpected state.
+            postprocessing_results["aggregated_score"] = "Fail"
+    else:
+        # If parsing failed, aggregation is skipped. Set aggregated_score explicitly to None.
+        postprocessing_results["aggregated_score"] = None
+        logger.debug("Postprocessing: Skipping score aggregation due to parsing error.")
+
+    # --- 4. Final Consolidation ---
     # Ensure unique review reasons and sort them for consistent output
     if postprocessing_results["review_reasons"]:
         postprocessing_results["review_reasons"] = sorted(
             list(set(postprocessing_results["review_reasons"]))
         )
-    logger.debug("Postprocessing orchestration finished.")
+
+    logger.info(
+        "Postprocessing finished. Score: %s, Verified: %s, Review Needed: %s",
+        postprocessing_results["aggregated_score"],
+        postprocessing_results["final_answer_verified"],
+        postprocessing_results["needs_human_review"],
+    )
+    logger.debug("Review Reasons: %s", postprocessing_results["review_reasons"])
 
     return postprocessing_results
 
@@ -549,6 +646,21 @@ if __name__ == "__main__":
             return {"error": f"Dummy parser error: Input type {type(resp).__name__}"}
 
     # --- Define Test Data ---
+    # Dummy config for testing aggregation rules
+    test_config = {
+        "aggregation_settings": {
+            "aggregation_rules": {
+                "fail_if_any_no": True,
+                "partial_if_any_partial": True,
+                "pass_if_all_yes": True,
+            },
+            "consistency_checks": {
+                "enable_trivial_justification_check": True,
+                "trivial_justification_length_threshold": 10,
+            },
+        }
+    }
+
     good_parse_input_pass = {
         "evaluation": {
             "Problem Understanding": {
@@ -594,42 +706,69 @@ if __name__ == "__main__":
         "some_other_key": "value"
     }  # Parser should catch this ideally
 
+    # Structured response examples
+    structured_resp_ok = {"response": {"final_answer": "x=5"}}
+    structured_resp_missing_key = {"response": {"answer": "x=5"}}
+    structured_resp_not_dict = {"response": "Error during structuring"}
+    structured_resp_none = None
+
     # --- Run Basic Postprocessing Tests ---
     logger.info("\n--- Test Case 1: Parsing Error ---")
     bad_parse_input = {"error": "Invalid JSON format: ..."}
-    results1 = perform_postprocessing(bad_parse_input, "x=5", "x=5")
-    logger.info("Input: %s", bad_parse_input)
+    results1 = perform_postprocessing(
+        bad_parse_input, structured_resp_ok, "x=5", test_config
+    )
+    logger.info("Input (Parsed Judge): %s", bad_parse_input)
+    logger.info("Input (Structured Model): %s", structured_resp_ok)
     logger.info("Result:\n%s", json.dumps(results1, indent=2))
     assert results1["needs_human_review"] is True
     assert results1["parsing_error"] is not None
-    assert results1["aggregated_score"] is None
-    assert (
-        results1["final_answer_verified"] is True
-    )  # Verification still runs even if parse fails
+    assert results1["aggregated_score"] is None  # Aggregation skipped
+    assert results1["final_answer_verified"] is True  # Verification still runs
 
     logger.info("\n--- Test Case 2: All Pass, Answer Match (String) ---")
-    results2 = perform_postprocessing(good_parse_input_pass, "apple", "apple")
-    logger.info("Input: %s, Answers: ('apple', 'apple')", good_parse_input_pass)
+    results2 = perform_postprocessing(
+        good_parse_input_pass,
+        {"response": {"final_answer": "apple"}},
+        "apple",
+        test_config,
+    )
+    logger.info("Input (Parsed Judge): %s", good_parse_input_pass)
+    logger.info("Input (Structured Model): %s", {"response": {"final_answer": "apple"}})
     logger.info("Result:\n%s", json.dumps(results2, indent=2))
     assert results2["needs_human_review"] is False
     assert results2["parsing_error"] is None
     assert results2["aggregated_score"] == "Pass"
     assert results2["final_answer_verified"] is True
-    assert "String" in results2["verification_message"]  # Ensure string method used
+    assert "String" in results2["verification_message"]
 
     logger.info("\n--- Test Case 3: One Fail, Answer Mismatch (String) ---")
-    results3 = perform_postprocessing(good_parse_input_fail, "apple", "orange")
-    logger.info("Input: %s, Answers: ('apple', 'orange')", good_parse_input_fail)
+    results3 = perform_postprocessing(
+        good_parse_input_fail,
+        {"response": {"final_answer": "apple"}},
+        "orange",
+        test_config,
+    )
+    logger.info("Input (Parsed Judge): %s", good_parse_input_fail)
+    logger.info("Input (Structured Model): %s", {"response": {"final_answer": "apple"}})
     logger.info("Result:\n%s", json.dumps(results3, indent=2))
-    assert results3["needs_human_review"] is False
+    assert (
+        results3["needs_human_review"] is False
+    )  # Default: mismatch doesn't trigger review
     assert results3["parsing_error"] is None
     assert results3["aggregated_score"] == "Fail"
     assert results3["final_answer_verified"] is False
     assert "String" in results3["verification_message"]
 
     logger.info("\n--- Test Case 4: Partial Score, Trivial Justification ---")
-    results4 = perform_postprocessing(good_parse_input_partial_trivial, "A", "A")
-    logger.info("Input: %s, Answers: ('A', 'A')", good_parse_input_partial_trivial)
+    results4 = perform_postprocessing(
+        good_parse_input_partial_trivial,
+        {"response": {"final_answer": "A"}},
+        "A",
+        test_config,
+    )
+    logger.info("Input (Parsed Judge): %s", good_parse_input_partial_trivial)
+    logger.info("Input (Structured Model): %s", {"response": {"final_answer": "A"}})
     logger.info("Result:\n%s", json.dumps(results4, indent=2))
     assert results4["needs_human_review"] is True
     assert "Potential trivial justification" in results4["review_reasons"][0]
@@ -638,8 +777,14 @@ if __name__ == "__main__":
     assert results4["final_answer_verified"] is True
 
     logger.info("\n--- Test Case 5: Fail Score, Trivial Justification ---")
-    results5 = perform_postprocessing(good_parse_input_fail_trivial, "A", "B")
-    logger.info("Input: %s, Answers: ('A', 'B')", good_parse_input_fail_trivial)
+    results5 = perform_postprocessing(
+        good_parse_input_fail_trivial,
+        {"response": {"final_answer": "A"}},
+        "B",
+        test_config,
+    )
+    logger.info("Input (Parsed Judge): %s", good_parse_input_fail_trivial)
+    logger.info("Input (Structured Model): %s", {"response": {"final_answer": "A"}})
     logger.info("Result:\n%s", json.dumps(results5, indent=2))
     assert results5["needs_human_review"] is True
     assert "Potential trivial justification" in results5["review_reasons"][0]
@@ -648,27 +793,43 @@ if __name__ == "__main__":
     assert results5["final_answer_verified"] is False
 
     logger.info("\n--- Test Case 6: Missing Evaluation Content (Defensive) ---")
-    results6 = perform_postprocessing(missing_eval_content, "A", "B")
-    logger.info("Input: %s, Answers: ('A', 'B')", missing_eval_content)
+    # Simulate parser returning successfully but without 'evaluation' key
+    parsed_judge_missing_eval = {"some_other_key": "value"}
+    results6 = perform_postprocessing(
+        parsed_judge_missing_eval, {"response": {"final_answer": "A"}}, "B", test_config
+    )
+    logger.info("Input (Parsed Judge): %s", parsed_judge_missing_eval)
+    logger.info("Input (Structured Model): %s", {"response": {"final_answer": "A"}})
     logger.info("Result:\n%s", json.dumps(results6, indent=2))
     assert results6["needs_human_review"] is True
     assert "evaluation' content missing" in results6["review_reasons"][0]
     assert results6["aggregated_score"] == "Fail"  # Default to Fail
 
     logger.info("\n--- Test Case 7: Verification Skipped (No Correct Answer) ---")
-    results7 = perform_postprocessing(good_parse_input_pass, "10", None)
-    logger.info("Input: %s, Answers: ('10', None)", good_parse_input_pass)
+    results7 = perform_postprocessing(
+        good_parse_input_pass, {"response": {"final_answer": "10"}}, None, test_config
+    )
+    logger.info("Input (Parsed Judge): %s", good_parse_input_pass)
+    logger.info("Input (Structured Model): %s", {"response": {"final_answer": "10"}})
     logger.info("Result:\n%s", json.dumps(results7, indent=2))
     assert results7["final_answer_verified"] is None
     assert "Correct answer was None" in results7["verification_message"]
-    assert results7["aggregated_score"] == "Pass"  # Aggregation unaffected
+    assert results7["aggregated_score"] == "Pass"
     assert results7["needs_human_review"] is False
 
     # --- SymPy Verification Tests ---
     logger.info("\n--- Test Case 8: SymPy Verification (Match - Symbolic) ---")
     if SYMPY_AVAILABLE:
-        results8 = perform_postprocessing(good_parse_input_pass, "x + y", "y + x")
-        logger.info("Input: %s, Answers: ('x + y', 'y + x')", good_parse_input_pass)
+        results8 = perform_postprocessing(
+            good_parse_input_pass,
+            {"response": {"final_answer": "x + y"}},
+            "y + x",
+            test_config,
+        )
+        logger.info("Input (Parsed Judge): %s", good_parse_input_pass)
+        logger.info(
+            "Input (Structured Model): %s", {"response": {"final_answer": "x + y"}}
+        )
         logger.info("Result:\n%s", json.dumps(results8, indent=2))
         assert results8["final_answer_verified"] is True
         assert "SymPy" in results8["verification_message"]
@@ -677,9 +838,16 @@ if __name__ == "__main__":
 
     logger.info("\n--- Test Case 9: SymPy Verification (Match - LaTeX/Numeric) ---")
     if SYMPY_AVAILABLE:
-        results9 = perform_postprocessing(good_parse_input_pass, "\\frac{1}{2}", "0.5")
+        results9 = perform_postprocessing(
+            good_parse_input_pass,
+            {"response": {"final_answer": "\\frac{1}{2}"}},
+            "0.5",
+            test_config,
+        )
+        logger.info("Input (Parsed Judge): %s", good_parse_input_pass)
         logger.info(
-            "Input: %s, Answers: ('\\frac{1}{2}', '0.5')", good_parse_input_pass
+            "Input (Structured Model): %s",
+            {"response": {"final_answer": "\\frac{1}{2}"}},
         )
         logger.info("Result:\n%s", json.dumps(results9, indent=2))
         assert results9["final_answer_verified"] is True
@@ -689,8 +857,16 @@ if __name__ == "__main__":
 
     logger.info("\n--- Test Case 10: SymPy Verification (Match - Different Form) ---")
     if SYMPY_AVAILABLE:
-        results10 = perform_postprocessing(good_parse_input_pass, "2*x", "x*2")
-        logger.info("Input: %s, Answers: ('2*x', 'x*2')", good_parse_input_pass)
+        results10 = perform_postprocessing(
+            good_parse_input_pass,
+            {"response": {"final_answer": "2*x"}},
+            "x*2",
+            test_config,
+        )
+        logger.info("Input (Parsed Judge): %s", good_parse_input_pass)
+        logger.info(
+            "Input (Structured Model): %s", {"response": {"final_answer": "2*x"}}
+        )
         logger.info("Result:\n%s", json.dumps(results10, indent=2))
         assert results10["final_answer_verified"] is True
         assert "SymPy" in results10["verification_message"]
@@ -699,8 +875,16 @@ if __name__ == "__main__":
 
     logger.info("\n--- Test Case 11: SymPy Verification (Mismatch) ---")
     if SYMPY_AVAILABLE:
-        results11 = perform_postprocessing(good_parse_input_pass, "x + y", "x - y")
-        logger.info("Input: %s, Answers: ('x + y', 'x - y')", good_parse_input_pass)
+        results11 = perform_postprocessing(
+            good_parse_input_pass,
+            {"response": {"final_answer": "x + y"}},
+            "x - y",
+            test_config,
+        )
+        logger.info("Input (Parsed Judge): %s", good_parse_input_pass)
+        logger.info(
+            "Input (Structured Model): %s", {"response": {"final_answer": "x + y"}}
+        )
         logger.info("Result:\n%s", json.dumps(results11, indent=2))
         assert results11["final_answer_verified"] is False
         assert "SymPy" in results11["verification_message"]
@@ -709,50 +893,41 @@ if __name__ == "__main__":
 
     logger.info("\n--- Test Case 12: SymPy Fallback (Parse Error) ---")
     # This should fallback to string comparison because 'invalid[syntax' cannot be parsed
-    results12 = perform_postprocessing(good_parse_input_pass, "invalid[syntax", "x")
-    logger.info("Input: %s, Answers: ('invalid[syntax', 'x')", good_parse_input_pass)
+    results12 = perform_postprocessing(
+        good_parse_input_pass,
+        {"response": {"final_answer": "invalid[syntax"}},
+        "x",
+        test_config,
+    )
+    logger.info("Input (Parsed Judge): %s", good_parse_input_pass)
+    logger.info(
+        "Input (Structured Model): %s", {"response": {"final_answer": "invalid[syntax"}}
+    )
     logger.info("Result:\n%s", json.dumps(results12, indent=2))
     assert results12["final_answer_verified"] is False  # String comparison fails
     assert "String" in results12["verification_message"]  # Should indicate fallback
 
-    logger.info("\n--- All Postprocessing Tests Passed (Implicitly) ---")
-    logger.info("Result:\n%s", json.dumps(results12, indent=2))
-    assert results12["final_answer_verified"] is False  # String comparison fails
-    assert "String" in results12["verification_message"]  # Should indicate fallback
+    logger.info("\n--- Test Case 13: Verification with Missing Structured Answer ---")
+    results13 = perform_postprocessing(
+        good_parse_input_pass, structured_resp_missing_key, "x=5", test_config
+    )
+    logger.info("Input (Parsed Judge): %s", good_parse_input_pass)
+    logger.info("Input (Structured Model): %s", structured_resp_missing_key)
+    logger.info("Result:\n%s", json.dumps(results13, indent=2))
+    assert results13["final_answer_verified"] is None  # Verification skipped
+    assert "Extracted answer was None" in results13["verification_message"]
+    assert results13["aggregated_score"] == "Pass"  # Aggregation unaffected
 
-    logger.info("\n--- All Postprocessing Tests Passed (Implicitly) ---")
-    logger.info("Result:\n%s", json.dumps(results12, indent=2))
-    assert results12["final_answer_verified"] is False  # String comparison fails
-    assert "String" in results12["verification_message"]  # Should indicate fallback
-
-    logger.info("\n--- All Postprocessing Tests Passed (Implicitly) ---")
-    logger.info("Result:\n%s", json.dumps(results12, indent=2))
-    assert results12["final_answer_verified"] is False  # String comparison fails
-    assert "String" in results12["verification_message"]  # Should indicate fallback
-
-    logger.info("\n--- All Postprocessing Tests Passed (Implicitly) ---")
-    logger.info("Result:\n%s", json.dumps(results12, indent=2))
-    assert results12["final_answer_verified"] is False  # String comparison fails
-    assert "String" in results12["verification_message"]  # Should indicate fallback
-
-    logger.info("\n--- All Postprocessing Tests Passed (Implicitly) ---")
-    logger.info("Result:\n%s", json.dumps(results12, indent=2))
-    assert results12["final_answer_verified"] is False  # String comparison fails
-    assert "String" in results12["verification_message"]  # Should indicate fallback
-
-    logger.info("\n--- All Postprocessing Tests Passed (Implicitly) ---")
-    logger.info("Result:\n%s", json.dumps(results12, indent=2))
-    assert results12["final_answer_verified"] is False  # String comparison fails
-    assert "String" in results12["verification_message"]  # Should indicate fallback
-
-    logger.info("\n--- All Postprocessing Tests Passed (Implicitly) ---")
-    logger.info("Result:\n%s", json.dumps(results12, indent=2))
-    assert results12["final_answer_verified"] is False  # String comparison fails
-    assert "String" in results12["verification_message"]  # Should indicate fallback
-
-    logger.info("\n--- All Postprocessing Tests Passed (Implicitly) ---")
-    logger.info("Result:\n%s", json.dumps(results12, indent=2))
-    assert results12["final_answer_verified"] is False  # String comparison fails
-    assert "String" in results12["verification_message"]  # Should indicate fallback
+    logger.info(
+        "\n--- Test Case 14: Verification with Non-Dict Structured Response ---"
+    )
+    results14 = perform_postprocessing(
+        good_parse_input_pass, structured_resp_not_dict, "x=5", test_config
+    )
+    logger.info("Input (Parsed Judge): %s", good_parse_input_pass)
+    logger.info("Input (Structured Model): %s", structured_resp_not_dict)
+    logger.info("Result:\n%s", json.dumps(results14, indent=2))
+    assert results14["final_answer_verified"] is None  # Verification skipped
+    assert "Extracted answer was None" in results14["verification_message"]
 
     logger.info("\n--- All Postprocessing Tests Passed (Implicitly) ---")

@@ -13,14 +13,11 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-
 from .llm_clients.base import BaseLLMClient
 from .llm_clients.openai_client import OpenAIClient
 from .output_writer import save_evaluation_result
 from .postprocessing import perform_postprocessing
-from .preprocessing import (
-    normalize_text_formats,
-)
+from .preprocessing import normalize_text_formats
 from .prompt_templates import load_prompt_template
 from .response_parser import parse_judge_response
 
@@ -121,18 +118,18 @@ def run_evaluation_workflow(
     )
 
     try:
-        llm_config: Dict[str, Any] = config.get("llm_client", {})
-        eval_config: Dict[str, Any] = config.get("evaluation_settings", {})
+        # Access config attributes directly
+        llm_config = config.llm_client
+        eval_config = config.evaluation_settings
+        structuring_config = config.structuring_settings # Get structuring settings
 
-        judge_llm_provider: str = llm_config.get("provider", DEFAULT_JUDGE_LLM_PROVIDER)
-        judge_llm_model: str = eval_config.get(
-            "judge_model", llm_config.get("model", DEFAULT_JUDGE_LLM_MODEL)
-        )
-        prompt_template_path: str = eval_config.get(
-            "prompt_template", DEFAULT_PROMPT_TEMPLATE_PATH
-        )
-        expected_criteria: Optional[List[str]] = eval_config.get("expected_criteria")
-        allowed_scores: Optional[List[str]] = eval_config.get("allowed_scores")
+        # Use attribute access, provide defaults if attributes might be missing (though validation should ensure they exist)
+        judge_llm_provider: str = getattr(llm_config, 'provider', DEFAULT_JUDGE_LLM_PROVIDER)
+        # Judge model comes from evaluation_settings
+        judge_llm_model: str = getattr(eval_config, 'judge_model', getattr(llm_config, 'model', DEFAULT_JUDGE_LLM_MODEL))
+        prompt_template_path: str = getattr(eval_config, 'prompt_template', DEFAULT_PROMPT_TEMPLATE_PATH)
+        expected_criteria: Optional[List[str]] = getattr(eval_config, 'expected_criteria', None)
+        allowed_scores: Optional[List[str]] = getattr(eval_config, 'allowed_scores', None)
 
         norm_prompt_content = normalize_text_formats(prompt)
 
@@ -144,9 +141,8 @@ def run_evaluation_workflow(
         norm_ideal_response_text = normalize_text_formats(ideal_response)
 
         # Structuring step (mandatory before judging)
-        structuring_template_path: str = config.get("structuring_settings", {}).get(
-            "prompt_template", DEFAULT_STRUCTURING_TEMPLATE_PATH
-        )
+        # Access structuring settings via attribute
+        structuring_template_path: str = getattr(structuring_config, 'prompt_template', DEFAULT_STRUCTURING_TEMPLATE_PATH)
         structuring_prompt_template = load_prompt_template(structuring_template_path)
         if structuring_prompt_template is None:
             msg = f"Failed to load structuring prompt template from '{structuring_template_path}'."
@@ -156,9 +152,8 @@ def run_evaluation_workflow(
         structuring_system_prompt = (
             "You are an expert structurer preparing responses for rigorous evaluation."
         )
-        structuring_model_name = config.get("structuring_settings", {}).get(
-            "structuring_model", judge_llm_model
-        )
+        # Access structuring model via attribute
+        structuring_model_name = getattr(structuring_config, 'structuring_model', judge_llm_model)
 
         # --- Structure Model Response ---
         prompt_for_model_structuring = (
@@ -191,10 +186,10 @@ def run_evaluation_workflow(
                 )
                 # Always wrap the parsed result to ensure the correct structuring model name is included
                 structured_model_response_obj = {
-                    "model": structuring_model_name, # Use name from config
-                    "response": parsed_model_response, # The actual parsed content (dict or string)
+                    "model": structuring_model_name,  # Use name from config
+                    "response": parsed_model_response,  # The actual parsed content (dict or string)
                 }
-                break # Exit loop on successful structuring
+                break  # Exit loop on successful structuring
             # Log warning if attempt failed
             logger.warning(
                 "Structuring (Model Response) attempt %d failed: %s",
@@ -261,7 +256,9 @@ def run_evaluation_workflow(
                     temperature=0.0,
                 )
                 if "error" not in response_ideal:
-                    raw_structured_ideal_response = response_ideal.get("raw_content", "")
+                    raw_structured_ideal_response = response_ideal.get(
+                        "raw_content", ""
+                    )
                     # Parse the raw response
                     parsed_ideal_response = _parse_json_string(
                         raw_structured_ideal_response,
@@ -270,13 +267,15 @@ def run_evaluation_workflow(
                     )
                     # Always wrap the parsed result to include the structuring model name
                     structured_ideal_response = {
-                        "model": structuring_model_name, # Use name from config
-                        "response": parsed_ideal_response, # The actual parsed content (dict or string)
+                        "model": structuring_model_name,  # Use name from config
+                        "response": parsed_ideal_response,  # The actual parsed content (dict or string)
                     }
 
                     # Store the final dictionary object in cache if successful and cache is provided
                     if structured_ideal_cache is not None and task_id is not None:
-                        structured_ideal_cache[task_id] = structured_ideal_response # Store the final dict object
+                        structured_ideal_cache[task_id] = (
+                            structured_ideal_response  # Store the final dict object
+                        )
                         logger.info(
                             "CACHE_STORE (Ideal Response): Stored structured ideal response object for task_id=%s",
                             task_id,
@@ -325,41 +324,56 @@ def run_evaluation_workflow(
         )
         # If the 'response' part is a dict/list (parsed JSON), convert it back to a JSON string for the prompt
         if isinstance(model_resp_content, (dict, list)):
-            model_resp_str_for_prompt = json.dumps(model_resp_content, ensure_ascii=False)
+            model_resp_str_for_prompt = json.dumps(
+                model_resp_content, ensure_ascii=False
+            )
         else:
             model_resp_str_for_prompt = str(
                 model_resp_content
             )  # Use the string directly if parsing failed
-
 
         # Extract the 'response' part from the structured object for the ideal response
         # Handle cases where structured_ideal_response might be the raw string if parsing failed
         if isinstance(structured_ideal_response, dict):
             ideal_resp_content = structured_ideal_response.get("response", "")
         else:
-            ideal_resp_content = structured_ideal_response or ""  # Use the string directly
+            ideal_resp_content = (
+                structured_ideal_response or ""
+            )  # Use the string directly
 
         # If the extracted content is still a dict/list, convert it back to a JSON string for the prompt
         if isinstance(ideal_resp_content, (dict, list)):
-            ideal_resp_str_for_prompt = json.dumps(ideal_resp_content, ensure_ascii=False)
+            ideal_resp_str_for_prompt = json.dumps(
+                ideal_resp_content, ensure_ascii=False
+            )
         else:
             ideal_resp_str_for_prompt = str(ideal_resp_content)
 
         # --- Log values before formatting judge prompt ---
-        logger.debug(f"Task [{task_id}] Model [{model_id}]: Preparing judge prompt. Template path: {prompt_template_path}")
+        logger.debug(
+            f"Task [{task_id}] Model [{model_id}]: Preparing judge prompt. Template path: {prompt_template_path}"
+        )
         # logger.debug(f"Task [{task_id}] Model [{model_id}]: Template content: {prompt_template}") # Optional: Log template if needed, can be long
-        logger.debug(f"Task [{task_id}] Model [{model_id}]: norm_prompt_content type: {type(norm_prompt_content)}")
-        logger.debug(f"Task [{task_id}] Model [{model_id}]: model_resp_str_for_prompt type: {type(model_resp_str_for_prompt)}, value snippet: {model_resp_str_for_prompt[:200]}...") # Log snippet
-        logger.debug(f"Task [{task_id}] Model [{model_id}]: ideal_resp_str_for_prompt type: {type(ideal_resp_str_for_prompt)}, value snippet: {ideal_resp_str_for_prompt[:200]}...") # Log snippet
-        logger.debug(f"Task [{task_id}] Model [{model_id}]: norm_correct_answer_text type: {type(norm_correct_answer_text)}")
+        logger.debug(
+            f"Task [{task_id}] Model [{model_id}]: norm_prompt_content type: {type(norm_prompt_content)}"
+        )
+        logger.debug(
+            f"Task [{task_id}] Model [{model_id}]: model_resp_str_for_prompt type: {type(model_resp_str_for_prompt)}, value snippet: {model_resp_str_for_prompt[:200]}..."
+        )  # Log snippet
+        logger.debug(
+            f"Task [{task_id}] Model [{model_id}]: ideal_resp_str_for_prompt type: {type(ideal_resp_str_for_prompt)}, value snippet: {ideal_resp_str_for_prompt[:200]}..."
+        )  # Log snippet
+        logger.debug(
+            f"Task [{task_id}] Model [{model_id}]: norm_correct_answer_text type: {type(norm_correct_answer_text)}"
+        )
 
         # --- Fill the judge prompt template ---
         filled_prompt = prompt_template.format(
             prompt=norm_prompt_content,
-                    structured_model_response=model_resp_str_for_prompt,
-                    structured_ideal_response=ideal_resp_str_for_prompt,
-                    correct_answer=norm_correct_answer_text,
-                )
+            structured_model_response=model_resp_str_for_prompt,
+            structured_ideal_response=ideal_resp_str_for_prompt,
+            correct_answer=norm_correct_answer_text,
+        )
 
         judge_system_prompt = "You are an expert mathematician and rigorous evaluator assessing an AI model's response."
         llm_response = None
@@ -436,9 +450,9 @@ def run_evaluation_workflow(
         # Initialize workflow_result to a default error state
         # Use the evaluation_id generated earlier for tracking
         workflow_result = {
-             "status": "error",
-             "message": "Workflow failed before checking save status",
-             "evaluation_id": evaluation_id
+            "status": "error",
+            "message": "Workflow failed before checking save status",
+            "evaluation_id": evaluation_id,
         }
 
         # Check save status and prepare final result (Correctly indented within function)
@@ -456,19 +470,27 @@ def run_evaluation_workflow(
                 "result": save_status,
             }
         elif save_status is None:
-             # Handle case where save_evaluation_result might have returned None (shouldn't happen ideally)
-             msg = "Failed to get save status (save_evaluation_result returned None)"
-             workflow_result = {"status": "error", "message": msg, "evaluation_id": evaluation_id}
-             logger.error(msg)
-        else: # Handle case where save_status indicates failure
+            # Handle case where save_evaluation_result might have returned None (shouldn't happen ideally)
+            msg = "Failed to get save status (save_evaluation_result returned None)"
+            workflow_result = {
+                "status": "error",
+                "message": msg,
+                "evaluation_id": evaluation_id,
+            }
+            logger.error(msg)
+        else:  # Handle case where save_status indicates failure
             msg = f"Failed to save evaluation result: {save_status.get('message', 'Unknown error')}"
             # Overwrite workflow_result on save failure
-            workflow_result = {"status": "error", "message": msg, "evaluation_id": evaluation_id}
+            workflow_result = {
+                "status": "error",
+                "message": msg,
+                "evaluation_id": evaluation_id,
+            }
             logger.error(msg)
 
         # Final return for the function (still inside try block)
         return workflow_result
-    except Exception as e: # Aligned with the 'try' at line 124
+    except Exception as e:  # Aligned with the 'try' at line 124
         # Catch any unexpected exceptions during the workflow
         logger.exception(
             "Unexpected error occurred during evaluation workflow for instance %s: %s",
@@ -479,5 +501,5 @@ def run_evaluation_workflow(
         return {
             "status": "error",
             "message": f"Unexpected workflow error: {e}",
-            "evaluation_id": f"eval_error_{uuid.uuid4()}", # Generate an ID for tracking
+            "evaluation_id": f"eval_error_{uuid.uuid4()}",  # Generate an ID for tracking
         }

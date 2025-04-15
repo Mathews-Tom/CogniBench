@@ -1,209 +1,92 @@
-# CogniBench - Single Evaluation Test Harness
-# Version: 0.2 (Phase 5 - Structured Input Support)
+# CogniBench - Single Evaluation Script (Refactored)
+# This script now acts as a simple CLI wrapper around core evaluation logic.
 
 import argparse
-import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict
 
-from core.workflow import run_evaluation_workflow
-from tqdm import tqdm
+# Add project root to sys.path to allow absolute import of core modules
+APP_DIR = Path(__file__).resolve().parent
+COGNIBENCH_ROOT = APP_DIR.parent
+if str(COGNIBENCH_ROOT) not in sys.path:
+    sys.path.insert(0, str(COGNIBENCH_ROOT))
 
 try:
+    # Import the new core runner function
+    from core.evaluation_runner import run_evaluation_from_file
     from core.log_setup import setup_logging
-except ImportError:
-    sys.path.insert(0, str(Path(__file__).parent))
-    from core.log_setup import setup_logging
+except ImportError as e:
+    print(f"Error importing core modules: {e}", file=sys.stderr)
+    print(
+        "Ensure the script is run from the project root or the PYTHONPATH is set correctly.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
 # Setup logging first
-setup_logging()
-logger = logging.getLogger('backend')
+# Consider making log level configurable via CLI argument if needed
+setup_logging(log_level=logging.INFO)  # Default to INFO for the script itself
+logger = logging.getLogger(__name__)  # Use __name__ for logger
 
 
-def load_config(config_path: Path):
-    try:
-        import yaml
-
-        with config_path.open("r", encoding="utf-8") as f:
-            return yaml.safe_load(f)
-    except Exception as e:
-        logger.error("Error loading config file %s", config_path, exc_info=True)
-        sys.exit(1)
-
-
-def validate_config(config: Dict[str, Any]) -> bool:
-    required_sections = ["llm_client", "evaluation_settings"]
-    for section in required_sections:
-        if section not in config or not isinstance(config[section], dict):
-            logger.error(
-                "Config validation failed: Missing or invalid section '%s'.", section
-            )
-            return False
-    return True
-
-
-def main(args):
-    config_path = Path(args.config)
-    input_data_path = Path(args.input_data)
-
-    if not input_data_path.is_file():
-        logger.error("Input data file not found at %s", input_data_path)
-        sys.exit(1)
-
-    config = load_config(config_path)
-    if not validate_config(config):
-        sys.exit(1)
-
-    try:
-        with input_data_path.open("r", encoding="utf-8") as f:
-            evaluation_tasks = json.load(f)
-    except Exception as e:
-        logger.error("Error loading input data file %s", input_data_path, exc_info=True)
-        sys.exit(1)
-
-    task_results_map = {}  # Changed from list to dict
-    structured_ideal_cache = {}  # Cache for structured ideal responses per task_id
-    overall_success = True
-
-    total_tasks = len(evaluation_tasks)
-    logger.info(f"Starting evaluation for {total_tasks} tasks.")
-
-    for i, task in enumerate(
-        tqdm(evaluation_tasks, desc="Evaluating Tasks", file=sys.stdout)
-    ):
-        print(f"PROGRESS: Task {i + 1}/{total_tasks}", file=sys.stdout, flush=True)
-        task_id = task.get("task_id", "unknown_task")
-        prompt_text = task.get("prompt")
-        correct_answer = task.get("correct_answer", "")
-
-        ideal_response_text = task.get("ideal_response")
-        structured_ideal_response = task.get(
-            "structured_ideal_response"
-        )  # Read from task data
-
-        model_responses = task.get("model_responses", [])
-
-        if not prompt_text or not ideal_response_text:
-            logger.warning(
-                "Skipping task %s due to missing prompt or ideal response.", task_id
-            )
-            continue
-
-        # Initialize task entry in the map if it doesn't exist
-        if task_id not in task_results_map:
-            task_results_map[task_id] = {
-                "task_id": task_id,
-                "prompt": prompt_text,
-                "ideal_response": ideal_response_text,
-                "structured_ideal_response": structured_ideal_response,  # Add SIR here
-                "evaluations": [],
-            }
-
-        for model_response in model_responses:
-            response_text = model_response.get("response_text")
-            structured_model_response = model_response.get("structured_model_response")
-            model_id = model_response.get("model_id", "unknown_model")
-
-            if (
-                args.use_structured
-                and structured_model_response
-                and structured_ideal_response
-            ):
-                response_input = structured_model_response
-                ideal_input = structured_ideal_response
-                structured = True
-            else:
-                response_input = response_text
-                ideal_input = ideal_response_text
-                structured = False
-
-            if not response_input:
-                logger.warning(
-                    "Skipping response from model %s in task %s due to missing text.",
-                    model_id,
-                    task_id,
-                )
-                continue
-
-            result = run_evaluation_workflow(
-                prompt=prompt_text,
-                response=response_input,
-                ideal_response=ideal_input,
-                correct_answer=correct_answer,
-                config=config,
-                task_id=task_id,
-                model_id=model_id,
-                structured=structured,
-                output_jsonl_path=Path(args.output_jsonl)
-                if args.output_jsonl
-                else None,
-                structured_ideal_cache=structured_ideal_cache,  # Pass cache
-            )
-            # --- Explicitly log the result received from the workflow ---
-            logger.debug(f"Task [{task_id}] Model [{model_id}]: Received result from workflow: Type={type(result)}, Value={result}")
-
-            # Append the workflow result to the specific task's evaluations list
-            if task_id in task_results_map:
-                task_results_map[task_id]["evaluations"].append(result)
-            else:
-                # This case should ideally not happen if initialization is correct
-                logger.error(
-                    f"Task ID {task_id} not found in map during result appending."
-                )
-
-            if result.get("status") != "success":
-                overall_success = False
-                logger.error(
-                    "Workflow Error for task %s, model %s: %s",
-                    task_id,
-                    model_id,
-                    result.get("message"),
-                )
-
-    results_output_path_str = config.get("output_options", {}).get(
-        "results_file", "data/evaluation_results.json"
-    )
-    results_output_path = Path(results_output_path_str)
-    results_output_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        # Convert the map values (task objects) into a list for the final JSON output
-        final_output_list = list(task_results_map.values())
-        with results_output_path.open("w", encoding="utf-8") as f:
-            json.dump(final_output_list, f, indent=2)
-        logger.info("Overall results saved to: %s", results_output_path)
-    except Exception as e:
-        logger.error(
-            "Error saving overall results to %s", results_output_path, exc_info=True
-        )
-
-    if not overall_success:
-        logger.error("Evaluation Run Completed with Errors")
-        sys.exit(1)
-    else:
-        logger.info("Evaluation Run Completed Successfully")
-
-
-if __name__ == "__main__":
-    # Logging is now handled by the calling script (e.g., run_batch_evaluation.py)
-    # setup_logging() # Removed call
+def main():
+    """Parses arguments and calls the core evaluation runner."""
     parser = argparse.ArgumentParser(
-        description="Run CogniBench evaluation on ingested data."
+        description="Run CogniBench evaluation on a single input data file using core logic."
     )
     parser.add_argument(
-        "--input-data", required=True, help="Path to the ingested JSON data file."
+        "--input-data",
+        type=Path,
+        required=True,
+        help="Path to the input JSON data file containing evaluation tasks.",
     )
     parser.add_argument(
-        "--config", required=True, help="Path to the YAML configuration file."
+        "--config",
+        type=Path,
+        required=True,
+        help="Path to the YAML configuration file.",
     )
     parser.add_argument(
-        "--output-jsonl", help="Path to the output JSONL file for detailed results."
+        "--output-jsonl",
+        type=Path,
+        help="Optional path to the output JSONL file for detailed results.",
     )
     parser.add_argument(
         "--use-structured",
         action="store_true",
-        help="Use structured responses if available.",
+        help="Use structured responses (ideal and model) if available in the input data and config allows.",
     )
-    args = parser.parse_args()
-    main(args)
+    # Add argument for log level if desired
+    # parser.add_argument(
+    #     "--log-level",
+    #     default="INFO",
+    #     choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+    #     help="Set the logging level.",
+    # )
 
+    args = parser.parse_args()
+
+    # Optional: Reconfigure logging level based on args
+    # log_level_numeric = getattr(logging, args.log_level.upper(), logging.INFO)
+    # logging.getLogger().setLevel(log_level_numeric) # Set root logger level
+    # logger.info(f"Logging level set to {args.log_level}")
+
+    logger.info("Calling core evaluation runner...")
+    success = run_evaluation_from_file(
+        input_path=args.input_data,
+        config_path=args.config,
+        output_jsonl_path=args.output_jsonl,
+        use_structured=args.use_structured,
+    )
+
+    if success:
+        logger.info("Evaluation script finished successfully.")
+        sys.exit(0)
+    else:
+        logger.error("Evaluation script finished with errors.")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

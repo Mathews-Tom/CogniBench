@@ -2,7 +2,7 @@ import functools
 import logging
 from pathlib import Path
 
-logger = logging.getLogger('backend')
+logger = logging.getLogger("backend")
 
 
 @functools.lru_cache(maxsize=32)

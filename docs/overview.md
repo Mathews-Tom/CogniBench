@@ -25,136 +25,150 @@
 The system follows a pipeline/workflow architecture:
 
 ```mermaid
-graph LR
+ graph LR
 
-  subgraph CogniBench System
-    direction LR
+   subgraph CogniBench System
+     direction LR
 
-    %% Core Workflow Components
-    A[Input Data Intake] --> B(Preprocessing: Normalization);
-    B --> C["Evaluation Core (LLM Judge)"];
-    C --> D[Post-processing & Aggregation];
-    D --> E[Output Generation];
-    D --> LOG["Enhanced Logging"];
-    B --> JSON["Robust JSON Parsing"];
-    D --> SYMPY["Improved SymPy Parsing"];
+     %% Core Workflow Components
+     A[Input Data Intake] --> B(Preprocessing: Normalization);
+     B --> C["Evaluation Core (LLM Judge)"];
+     C --> D[Post-processing & Aggregation];
+     D --> E[Output Generation];
+     D --> LOG["Enhanced Logging"];
+     B --> JSON["Robust JSON Parsing"];
+     D --> SYMPY["Improved SymPy Parsing"];
 
-    %% Data Storage & Logging
-    F["Data Storage (.json, .jsonl)"] <--> A;
-    F <--> E;
-    LOG["Log Storage (.log)"] <--> G;
+     %% Data Storage & Logging
+     F["Data Storage (data/, logs/)"] <--> A;
+     F <--> E;
+     %% G is now Core Runner
+     LOG["Log Storage (.log)"] <--> G;
 
-    %% Orchestration & UI
-    G["Batch Script Orchestrator (run_batch_evaluation.py)"] -- Manages --> A;
-    G -- Calls --> C;
-    G -- Manages --> D;
-    G -- Manages --> E;
-    I["Streamlit UI (streamlit_app/app.py)"] -- Triggers --> G;
-    I -- Reads Results --> F;
-    I -- Uses --> CM[Global COLOR_MAP Constant];
+     %% Orchestration & UI
+     %% Renamed G
+     G["Core Runner (evaluation_runner.py)"] -- Manages --> A;
+     G -- Calls --> C;
+     G -- Manages --> D;
+     G -- Manages --> E;
+     %% UI triggers Core Runner directly
+     I["Streamlit UI (app.py)"] -- Triggers --> G;
+     I -- Reads Results --> F;
+     I -- Uses --> CM[Global COLOR_MAP Constant];
 
-    %% UI Enhancements
-    subgraph "Streamlit UI Enhancements"
-        direction TB
-        I --> UI1[Expandable Sections for Prompts & Config];
-        UI1 --> UI2[Consistent Graph Coloring];
-    end
+     %% UI Enhancements
+     subgraph "Streamlit UI Enhancements"
+         direction TB
+         I --> UI1[Expandable Sections];
+         UI1 --> UI2[Consistent Graph Coloring];
+         UI2 --> UI3[Clustered Charts & Filters];
+         UI3 --> UI4[Log Expander & Cache Clear];
+     end
 
-    %% Evaluation Core Details
-    subgraph "Evaluation Core (LLM Judge)"
-        direction LR
-        C1[Prompt Constructor] --> C2(Judge LLM Invocation);
-        C2 --> C3[Response Parser];
-        C1 -- Uses --> JP[Judging Prompt];
-        C1 -- Uses --> SP[Structuring Prompt];
-    end
+     %% Evaluation Core Details
+     subgraph "Evaluation Core (LLM Judge)"
+         direction LR
+         C1[Prompt Constructor] --> C2(Judge LLM Invocation);
+         C2 --> C3[Response Parser];
+         C1 -- Uses --> JP[Judging Prompt];
+         C1 -- Uses --> SP[Structuring Prompt];
+     end
 
-    %% Optional API Layer (Not used by Streamlit App)
-    H[(API Layer)];
+     %% Optional API Layer (Not used by Streamlit App)
+     H[(API Layer)];
 
-    %% Styling
-    style F fill:#9575cd,stroke:#333,stroke-width:2px
-    style LOG fill:#b0bec5,stroke:#333,stroke-width:2px
-    style JSON fill:#ffab91,stroke:#333,stroke-width:2px
-    style SYMPY fill:#90caf9,stroke:#333,stroke-width:2px
-    style C fill:#64b5f6,stroke:#333,stroke-width:2px
-    style H fill:#4db6ac,stroke:#333,stroke-width:1px,stroke-dasharray: 5 5
-    style G fill:#ffca28,stroke:#333,stroke-width:2px
-    style I fill:#a5d6a7,stroke:#333,stroke-width:2px
-    style CM fill:#ff7043,stroke:#333,stroke-width:1px
-    style UI1 fill:#81c784,stroke:#333,stroke-width:1px
-    style UI2 fill:#81c784,stroke:#333,stroke-width:1px
-    style JP fill:#4fc3f7,stroke:#333,stroke-width:1px
-    style SP fill:#4fc3f7,stroke:#333,stroke-width:1px
-  end
-```
+     %% Styling
+     style F fill:#9575cd,stroke:#333,stroke-width:2px
+     style LOG fill:#b0bec5,stroke:#333,stroke-width:2px
+     style JSON fill:#ffab91,stroke:#333,stroke-width:2px
+     style SYMPY fill:#90caf9,stroke:#333,stroke-width:2px
+     style C fill:#64b5f6,stroke:#333,stroke-width:2px
+     style H fill:#4db6ac,stroke:#333,stroke-width:1px,stroke-dasharray: 5 5
+     %% Core Runner
+     style G fill:#ffca28,stroke:#333,stroke-width:2px 
+     %% Streamlit UI
+     style I fill:#a5d6a7,stroke:#333,stroke-width:2px
+     style CM fill:#ff7043,stroke:#333,stroke-width:1px
+     style UI1 fill:#81c784,stroke:#333,stroke-width:1px
+     style UI2 fill:#81c784,stroke:#333,stroke-width:1px
+     style UI3 fill:#81c784,stroke:#333,stroke-width:1px
+     style UI4 fill:#81c784,stroke:#333,stroke-width:1px
+     style JP fill:#4fc3f7,stroke:#333,stroke-width:1px
+     style SP fill:#4fc3f7,stroke:#333,stroke-width:1px
+   end
+ ```
 
-*Note: This diagram shows the main components and their relationships. The Streamlit UI interacts directly with the Batch Script Orchestrator, not the optional API Layer.*
+ *Note: This diagram shows the main components and their relationships. The Streamlit UI now interacts directly with the Core Runner (`evaluation_runner.py`), bypassing the batch script for execution.*
 
 ## 4. Detailed Workflow (Streamlit UI)
 
 The following diagram illustrates the sequence of operations when using the Streamlit UI:
 
 ```mermaid
-sequenceDiagram
-    participant User
-    participant UI as Streamlit UI (app.py)
-    participant BatchScript as run_batch_evaluation.py
-    participant IngestScript as ingest_rlhf_data.py
-    participant EvalScript as scripts/run_single_evaluation.py
-    participant CoreWorkflow as core/workflow.py
-    participant LLMClient as LLM Clients
-    participant DataStore as Data Storage (data/, logs/)
+ sequenceDiagram
+     participant User
+     participant UI as Streamlit UI (app.py)
+     participant CoreRunner as Core Runner (evaluation_runner.py)
+     participant CoreWorkflow as core/workflow.py
+     participant LLMClient as LLM Clients
+     participant DataStore as Data Storage (data/, logs/)
 
-    User->>+UI: Upload Raw JSON File(s)
-    User->>UI: Configure Judge (Model, Template, API Key)
-    User->>UI: View Prompts & Config in Expandable Sections
-    UI->>UI: Use Global COLOR_MAP for Graph Coloring
-    User->>+UI: Click "Run Evaluations"
-    UI->>+BatchScript: Execute via subprocess (pass file paths, config)
-    User->>+UI: Click "Stop Processing"
-    UI->>BatchScript: Signal stop event to gracefully terminate evaluation
+     User->>+UI: Upload Raw JSON File(s)
+     User->>UI: Configure Models & Prompts
+     User->>UI: View Prompts & Config
+     User->>+UI: Click "Run Evaluation"
+     UI->>UI: Generate AppConfig
+     UI->>+CoreRunner: Start evaluation_worker thread (pass AppConfig, stop_event)
 
-    BatchScript->>+IngestScript: Execute (pass raw file path)
-    IngestScript->>+DataStore: Write _ingested_*.json
-    IngestScript-->>-BatchScript: Return ingested file path (stdout)
+     CoreRunner->>CoreRunner: Create timestamped output dir in DataStore
+     CoreRunner->>CoreRunner: Load Input Data (from AppConfig paths)
 
-    BatchScript->>+EvalScript: Execute (pass ingested path, config, output path)
-    EvalScript->>+CoreWorkflow: Run evaluation loop
+     loop For Each Task/Model in Input File(s)
+         alt Check Stop Event
+             CoreRunner->>CoreRunner: if stop_event.is_set(): break
+         end
+         CoreRunner->>+CoreWorkflow: run_single_task_evaluation_core(...)
+         CoreWorkflow->>DataStore: Log STRUCTURING_CALL
+         CoreWorkflow->>LLMClient: Invoke Structuring LLM
+         LLMClient-->>CoreWorkflow: Structured Response
+         CoreWorkflow->>DataStore: Log JUDGING_CALL
+         CoreWorkflow->>LLMClient: Invoke Judging LLM
+         LLMClient-->>CoreWorkflow: Judging Response
+         CoreWorkflow->>DataStore: Append to _evaluations.jsonl
+         CoreWorkflow-->>-CoreRunner: Return task results
+     end
 
-    loop For Each Task/Model
-        CoreWorkflow->>DataStore: Log STRUCTURING_CALL
-        CoreWorkflow->>LLMClient: Invoke Structuring LLM
-        LLMClient-->>CoreWorkflow: Structured Response
-        CoreWorkflow->>DataStore: Log JUDGING_CALL
-        CoreWorkflow->>LLMClient: Invoke Judging LLM (using structured response)
-        LLMClient-->>CoreWorkflow: Judging Response
-        CoreWorkflow->>DataStore: Append to _evaluations.jsonl
-        CoreWorkflow-->>DataStore: Append complete
-    end
+     CoreRunner->>CoreRunner: Format _evaluations.jsonl -> _evaluations_formatted.json
+     CoreRunner->>+DataStore: Read Input Data (again)
+     DataStore-->>-CoreRunner: Return input data
+     CoreRunner->>+DataStore: Read _evaluations_formatted.json
+     DataStore-->>-CoreRunner: Return formatted evaluations
+     CoreRunner->>CoreRunner: Combine Data & Calculate Summary
+     CoreRunner->>+DataStore: Write _final_results.json
+     DataStore-->>-CoreRunner: Write complete
 
-    CoreWorkflow-->>-EvalScript: Complete
-    EvalScript-->>-BatchScript: Complete
+     CoreRunner-->>UI: Return list of _final_results.json paths (via queue)
 
-    BatchScript->>BatchScript: Format _evaluations.jsonl -> _evaluations_formatted.json
-    BatchScript->>+DataStore: Read _ingested_*.json
-    DataStore-->>-BatchScript: Return ingested data
-    BatchScript->>+DataStore: Read _evaluations_formatted.json
-    DataStore-->>-BatchScript: Return formatted evaluations
-    BatchScript->>BatchScript: Combine Data
-    BatchScript->>+DataStore: Write _final_results.json
-    DataStore-->>-BatchScript: Write complete
+     User->>+UI: Click "Stop Processing" (Optional)
+     UI->>CoreRunner: stop_event.set()
 
-    BatchScript->>UI: Print _final_results.json path (stdout)
-    BatchScript-->>-UI: Process finishes
-    UI->>UI: Capture results path from stdout
+     UI->>UI: Receive results paths from queue
+     UI->>+DataStore: Read _final_results.json (using load_and_process_results)
+     DataStore-->>-UI: Return results data
+     UI->>UI: Process data (Pandas)
+     UI->>UI: Generate Graphs (Plotly) & Tables
+     UI-->>-User: Display Results & Visualizations
 
-    UI->>+DataStore: Read _final_results.json
-    DataStore-->>-UI: Return results data
-    UI->>UI: Process data (Pandas)
-    UI->>UI: Generate Graphs (Plotly) & Tables using COLOR_MAP
-    UI-->>-User: Display Results & Visualizations
-```
+     User->>+UI: Load Existing Results (Optional)
+     UI->>+DataStore: Read selected _final_results.json
+     DataStore-->>-UI: Return results data
+     UI->>UI: Process & Display
+
+     User->>+UI: Clear Caches (Optional)
+     UI->>UI: st.cache_data.clear()
+     UI->>LLMClient: clear_openai_cache()
+     UI-->>-User: Confirmation
+ ```
 
 ## 5. Component Breakdown
 
@@ -273,14 +287,23 @@ sequenceDiagram
 * **Advanced Answer Verification:** Implement more sophisticated verification for different answer types (e.g., code execution, set comparison, numerical tolerance).
 * **Automated Ideal Response Generation (Research):** Explore using powerful LLMs within the CogniBench workflow to *generate* the `IDEAL RESPONSE` as a starting point for human experts, speeding up the process.
 * **Integration with L0:** Tightly integrate the L1 Judge output from CogniBench back into the L0 Golden Prompt Discovery process for richer failure analysis.
-* **User Interface (Streamlit):** Further enhance the Streamlit application (`streamlit_app/`) for better analysis and usability (Note: Recent updates include buttons to view selected prompt templates and `config.yaml` in expandable sections, placing these buttons side-by-side, and displaying the configuration summary below the configuration details section. Additionally, introduced a global `COLOR_MAP` constant for consistent and clear graph coloring across the application):
-  * **Dynamic Spinner:** Added a dynamic spinner to visually indicate ongoing evaluations clearly.
-  * **Stop Processing Button:** Implemented a "Stop Processing" button allowing users to gracefully interrupt ongoing evaluations.
-  * **Interactive Filtering:** Allow clicking on graph elements (e.g., bars) to filter the data tables below.
-  * **Detailed Task Modal:** Implement a pop-up or dedicated view to show all details (prompt, responses, full evaluation) for a selected task row.
-  * **Side-by-Side Comparison:** Add a mode to select two models and compare their responses and evaluations directly on the same tasks.
-  * **Results Export:** Add functionality to export the filtered data from the explorers (Task-Level, Human Review) to CSV/Excel.
-  * **Configuration Presets:** Allow saving and loading common LLM Judge configurations.
+* **User Interface (Streamlit):** Further enhance the Streamlit application (`streamlit_app/app.py`) for better analysis and usability:
+  * **Refactoring Complete (April 2025):**
+    * UI modularized into functions.
+    * Direct integration with `core.evaluation_runner` (no subprocess).
+    * Background thread for non-blocking evaluation runs.
+    * Detailed log capture and display in UI expander.
+    * Graceful evaluation cancellation via "Stop Run" button.
+    * Persistent results saving to `data/<BatchName>_YYYYMMDD_HHMM/`.
+    * Enhanced charts: Clustered bars, "All Criteria" view, Model filtering.
+    * Combined cache clearing button (Streamlit data + LLM cache).
+    * Correct parsing of input/output data structures.
+  * **Future Ideas:**
+    * Interactive Filtering: Allow clicking on graph elements (e.g., bars) to filter the data tables below.
+    * Detailed Task Modal: Implement a pop-up or dedicated view to show all details (prompt, responses, full evaluation) for a selected task row.
+    * Side-by-Side Comparison: Add a mode to select two models and compare their responses and evaluations directly on the same tasks.
+    * Results Export: Add functionality to export the filtered data from the explorers (Task-Level, Human Review) to CSV/Excel.
+    * Configuration Presets: Allow saving and loading common LLM Judge configurations.
   * **Historical Run Comparison:** Develop features to load and compare results across different evaluation runs (multiple `_final_results.json` files).
   
   **Recent Enhancements (April 2025):**

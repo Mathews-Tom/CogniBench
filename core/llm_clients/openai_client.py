@@ -15,7 +15,7 @@ from openai import OpenAI, OpenAIError
 from .base import BaseLLMClient
 
 # Get logger for this module
-logger = logging.getLogger('backend')
+logger = logging.getLogger("backend")
 
 # --- Cache Setup ---
 CACHE_FILENAME = "openai_cache"
@@ -45,6 +45,26 @@ def _get_cache():
             _cache = {}  # Fallback to in-memory dict if shelve fails
     return _cache
 
+def clear_openai_cache():
+    """Clears the persistent OpenAI API call cache."""
+    global _cache
+    cache = _get_cache() # Ensure cache is loaded/initialized
+    try:
+        if isinstance(cache, shelve.Shelf):
+            logger.info(f"Clearing OpenAI shelve cache ({CACHE_FILENAME})...")
+            cache.clear()
+            # Sync might be needed depending on shelve implementation/writeback settings
+            # cache.sync()
+            # Alternatively, close and reopen, but clear should suffice
+            logger.info("OpenAI shelve cache cleared.")
+        elif isinstance(cache, dict):
+             logger.info("Clearing OpenAI in-memory cache...")
+             cache.clear()
+             logger.info("OpenAI in-memory cache cleared.")
+        else:
+             logger.warning("Cache object is of unexpected type, cannot clear.")
+    except Exception as e:
+        logger.error(f"Error clearing OpenAI cache: {e}", exc_info=True)
 
 # --- End Cache Setup ---
 
