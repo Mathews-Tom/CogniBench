@@ -6,7 +6,7 @@ It orchestrates the process by:
 1. Parsing command-line arguments for input file, config file, and options.
 2. Calling the `ingest_rlhf_data.py` script via subprocess to preprocess the raw input data.
 3. Calling the `run_batch_evaluation_core` function from the core library
-   to perform the actual evaluation workflow using the ingested data and configuration.
+    to perform the actual evaluation workflow using the ingested data and configuration.
 4. Managing output directories and logging progress.
 """
 
@@ -82,9 +82,10 @@ def main() -> None:
         description="Run end-to-end CogniBench batch evaluation using core logic."
     )
     parser.add_argument(
-        "input_batch_file",
+        "input_batch_files",
+        nargs="+",  # Accept one or more arguments
         type=Path,
-        help="Path to the input raw RLHF JSON batch file.",
+        help="Paths to one or more input raw RLHF JSON batch files.",
     )
     parser.add_argument(
         "--config",
@@ -113,8 +114,12 @@ def main() -> None:
     args = parser.parse_args()
 
     # --- Validate Input Paths ---
-    if not args.input_batch_file.is_file():
-        logger.error(f"Input batch file not found: {args.input_batch_file}")
+    input_files_valid = True
+    for file_path in args.input_batch_files:
+        if not file_path.is_file():
+            logger.error(f"Input batch file not found: {file_path}")
+            input_files_valid = False
+    if not input_files_valid:
         sys.exit(1)
     if not args.config.is_file():
         logger.error(f"Config file not found: {args.config}")
@@ -134,9 +139,13 @@ def main() -> None:
         sys.exit(1)
 
     # --- Determine and Create Output Directory ---
-    batch_stem = args.input_batch_file.stem
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")  # Added seconds for uniqueness
-    output_subdir_name = f"{batch_stem}_{timestamp}"
+    # Combine stems of all input files for the directory name
+    batch_stems = [f.stem for f in args.input_batch_files]
+    combined_stem = "_".join(
+        sorted(batch_stems)
+    )  # Sort for consistent naming regardless of order
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")  # Added seconds for uniqueness
+    output_subdir_name = f"{combined_stem}_{timestamp}"
 
     # Default parent is CogniBench/data, allow override
     parent_output_dir = args.output_dir if args.output_dir else COGNIBENCH_ROOT / "data"
@@ -155,7 +164,7 @@ def main() -> None:
     ingestion_command = [
         sys.executable,  # Use the same python interpreter
         str(ingestion_script_path),
-        str(args.input_batch_file),
+        *[str(f) for f in args.input_batch_files],  # Pass all input files
         "--output-dir",  # Pass the specific batch output directory
         str(batch_output_dir),
     ]

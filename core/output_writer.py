@@ -176,7 +176,9 @@ if __name__ == "__main__":
     logger.info("Running output_writer example...")
 
     # Example data (replace with actual data from previous steps in a real scenario)
-    test_eval_id = f"eval_test_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    test_eval_id = (
+        f"eval_test_{datetime.now(datetime.timezone.utc).strftime('%Y%m%d%H%M')}"
+    )
     test_parsed_scores = {
         "Criterion A": {"score": "Yes", "justification": "Looks good."},
         "Criterion B": {"score": "Partial", "justification": "Minor issue."},
