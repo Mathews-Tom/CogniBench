@@ -19,30 +19,39 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 # --- Add project root to sys.path ---
-APP_DIR = Path(__file__).parent
-COGNIBENCH_ROOT = APP_DIR.parent
-if str(COGNIBENCH_ROOT) not in sys.path:
-    sys.path.insert(0, str(COGNIBENCH_ROOT))
+# COGNIBENCH_ROOT is now defined in core.constants, but needed for sys.path here
+_APP_DIR_TEMP = Path(__file__).parent
+_COGNIBENCH_ROOT_TEMP = _APP_DIR_TEMP.parent
+if str(_COGNIBENCH_ROOT_TEMP) not in sys.path:
+    sys.path.insert(0, str(_COGNIBENCH_ROOT_TEMP))
 # --- End sys.path modification ---
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 import yaml
-from cognibench_agent.constants import AVAILABLE_MODELS, COLOR_MAP
 from core.config import AppConfig
+
+# Import constants from the new core location
+from core.constants import (
+    APP_DIR,  # Import if needed, though defined locally above for sys.path
+    AVAILABLE_MODELS,
+    BASE_CONFIG_PATH,
+    COGNIBENCH_ROOT,  # Import the official one
+    COLOR_MAP,
+    DATA_DIR,
+    DEFAULT_JUDGING_MODEL,
+    DEFAULT_STRUCTURING_MODEL,
+    JUDGING_TEMPLATES_DIR,
+    PROMPT_TEMPLATES_DIR_ABS,  # Keep if used directly, otherwise remove
+    STRUCTURING_TEMPLATES_DIR,
+)
 from core.evaluation_runner import run_batch_evaluation_core
 from core.llm_clients.openai_client import clear_openai_cache
 from core.log_setup import setup_logging
 
 # --- Constants ---
-BASE_CONFIG_PATH = COGNIBENCH_ROOT / "config.yaml"
-PROMPT_TEMPLATES_DIR_ABS = COGNIBENCH_ROOT / "prompts"
-STRUCTURING_TEMPLATES_DIR = PROMPT_TEMPLATES_DIR_ABS / "structuring"
-JUDGING_TEMPLATES_DIR = PROMPT_TEMPLATES_DIR_ABS / "judging"
-DATA_DIR = COGNIBENCH_ROOT / "data"  # Default data directory
-
-# Constants moved to constants.py
+# Definitions moved to core/constants.py
 
 # --- Logging Setup ---
 logger = logging.getLogger("streamlit")
@@ -116,6 +125,7 @@ def initialize_session_state():
         "selected_results_folders": [],
         "config_complete": False,
         "evaluation_error": None,
+        "action_mode": "Run New Evaluation",  # Add state for selected action
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -123,11 +133,13 @@ def initialize_session_state():
 
     # Set default models if not already set
     if "structuring_model_select" not in st.session_state:
-        st.session_state["structuring_model_select"] = "GPT-4.1"
-        logger.info("Initialized structuring_model_select to GPT-4.1")
+        st.session_state["structuring_model_select"] = DEFAULT_STRUCTURING_MODEL
+        logger.info(
+            f"Initialized structuring_model_select to {DEFAULT_STRUCTURING_MODEL}"
+        )
     if "judging_model_select" not in st.session_state:
-        st.session_state["judging_model_select"] = "GPT-4.1"
-        logger.info("Initialized judging_model_select to GPT-4.1")
+        st.session_state["judging_model_select"] = DEFAULT_JUDGING_MODEL
+        logger.info(f"Initialized judging_model_select to {DEFAULT_JUDGING_MODEL}")
 
     # Special handling for temp dir
     if st.session_state.temp_dir is None:
@@ -337,9 +349,6 @@ def render_config_summary():
         struct_model_name, "N/A"
     )
     struct_template_name = st.session_state.structuring_template_select
-    # struct_template_path = AVAILABLE_STRUCTURING_TEMPLATES.get( # Unused variable
-    #     struct_template_name, "Not Selected"
-    # )
 
     judge_provider = st.session_state.judging_provider_select
     judge_model_name = st.session_state.judging_model_select
@@ -397,26 +406,9 @@ def generate_run_config() -> Optional[AppConfig]:
         # Get input file paths
         input_file_paths = [f["path"] for f in st.session_state.uploaded_files_info]
 
-        # --- Define persistent output directory (Moved Before override_config) ---
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M")  # User requested format
-        if st.session_state.uploaded_files_info:
-            # Use the stem of the first uploaded file as the base name
-            first_file_name = st.session_state.uploaded_files_info[0]["name"]
-            base_name = Path(first_file_name).stem
-            # Clean up common suffixes if needed
-            for suffix in [".json", "_ingested", "_tasks"]:
-                if base_name.endswith(suffix):
-                    base_name = base_name[: -len(suffix)]
-            folder_name = f"{base_name}_{timestamp}"
-        else:
-            # Fallback if somehow config is generated without files
-            folder_name = f"StreamlitRun_{timestamp}"
-
-        persistent_output_dir = DATA_DIR / folder_name
-        logger.info(f"Setting persistent output directory: {persistent_output_dir}")
-        # --- End Output Directory Definition ---
-
         # Create the config dictionary to override base config
+        # The specific output directory will be created by the worker based on combined input stems + timestamp
+        # Here, we only set the BASE data directory in the config.
         override_config = {
             "input_options": {"file_paths": input_file_paths},
             "structuring_settings": {
@@ -437,11 +429,9 @@ def generate_run_config() -> Optional[AppConfig]:
                 "prompt_template_path": judge_template_path,
                 "judge_model": judge_model_id,  # Also set the older key
             },
-            # Output options using the persistent directory
+            # Output options: Set output_dir to the base DATA_DIR
             "output_options": {
-                "output_dir": str(
-                    persistent_output_dir
-                ),  # Use calculated persistent path
+                "output_dir": str(DATA_DIR),  # Worker will create subfolder inside this
                 # Ensure necessary save flags are True if not set in base config
                 "save_evaluations_jsonl": True,
                 "save_evaluations_json": True,
@@ -527,104 +517,160 @@ def evaluation_worker(
         # Redirect stdout/stderr? The core runner should use logging.
         # For now, assume core runner logs appropriately.
 
-        # --- Step 1: Ingestion (Replicating script logic) ---
-        output_dir = Path(
-            config.output_options.output_dir
-        )  # Ensure output_dir is defined
+        # --- Step 1: Ingestion ---
         output_queue.put("INFO: Starting ingestion step...")
         logger.info("Starting ingestion step for Streamlit run...")
         raw_file_paths_str = config.input_options.file_paths
-        ingested_file_paths = []
+        ingested_file_path = None  # Will store the single combined ingested file path
         ingestion_success = True
+        valid_raw_paths = []
 
+        # Validate input paths first
+        output_queue.put("INFO: Validating input files...")
         for raw_path_str in raw_file_paths_str:
             if stop_event.is_set():
                 ingestion_success = False
-                logger.warning("Stop event detected during ingestion loop.")
+                logger.warning("Stop event detected during ingestion validation.")
                 break
-
             raw_path = Path(raw_path_str)
-            ingestion_script_path = COGNIBENCH_ROOT / "scripts/ingest_rlhf_data.py"
-            ingestion_command = [
-                sys.executable,
-                str(ingestion_script_path),
-                str(raw_path),
-                "--output-dir",  # Pass the specific batch output directory
-                str(output_dir),
-            ]
-            output_queue.put(f"INFO: Running ingestion for {raw_path.name}...")
-            logger.debug("Running ingestion command: %s", " ".join(ingestion_command))
-            try:
-                process = subprocess.run(
-                    ingestion_command,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                )
-                ingested_path_str = process.stdout.strip()
-                if not ingested_path_str:
-                    raise ValueError("Ingestion script did not output a file path.")
-                ingested_path = Path(ingested_path_str)
-                if not ingested_path.is_file():
-                    raise FileNotFoundError(
-                        f"Ingested file path reported but not found: {ingested_path}"
-                    )
-                ingested_file_paths.append(str(ingested_path))
-                output_queue.put(
-                    f"INFO: Ingestion successful for {raw_path.name} -> {ingested_path.name}"
-                )
-                logger.info(
-                    f"Ingestion successful for {raw_path.name} -> {ingested_path}"
-                )
-            except (subprocess.CalledProcessError, FileNotFoundError, ValueError) as e:
-                error_msg = f"ERROR: Ingestion failed for {raw_path.name}: {e}"
-                output_queue.put(error_msg)
-                logger.error(error_msg, exc_info=True)
-                if isinstance(e, subprocess.CalledProcessError):
-                    if e.stdout:
-                        logger.error("Ingestion stdout:\n%s", e.stdout)
-                    if e.stderr:
-                        logger.error("Ingestion stderr:\n%s", e.stderr)
+            if not raw_path.is_file():
                 ingestion_success = False
-                break  # Stop processing further files if one fails
-            except Exception as e:
-                error_msg = (
-                    f"ERROR: Unexpected error during ingestion for {raw_path.name}: {e}"
+                error_message = f"ERROR: Input file not found: {raw_path_str}"
+                output_queue.put(error_message)
+                logger.error(error_message)
+                break  # Stop if any input file is invalid
+            valid_raw_paths.append(raw_path)
+            logger.debug(f"Validated input file: {raw_path}")
+
+        if not ingestion_success:
+            output_queue.put(
+                "ERROR: Evaluation aborted due to invalid input or stop request during validation."
+            )
+            logger.error(
+                "Evaluation aborted due to invalid input or stop request during validation."
+            )
+            results_paths = None
+            return  # Exit if validation failed or stopped
+
+        if not valid_raw_paths:
+            output_queue.put("ERROR: No valid input files provided for ingestion.")
+            logger.error("No valid input files provided for ingestion.")
+            results_paths = None
+            return  # Exit if no valid files
+
+        # Construct combined output directory name and path
+        base_output_dir = Path(config.output_options.output_dir)
+        input_stems = [p.stem for p in valid_raw_paths]
+        combined_stem = "_".join(sorted(input_stems))
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M")  # Corrected datetime call
+        # Create a directory named after the combined stems + timestamp
+        combined_output_dir = base_output_dir / f"{combined_stem}_{timestamp}"
+        try:
+            combined_output_dir.mkdir(parents=True, exist_ok=True)  # Ensure it exists
+            logger.info(f"Created combined output directory: {combined_output_dir}")
+        except OSError as e:
+            error_message = (
+                f"ERROR: Failed to create output directory {combined_output_dir}: {e}"
+            )
+            output_queue.put(error_message)
+            logger.error(error_message, exc_info=True)
+            results_paths = None
+            return  # Exit if directory creation fails
+
+        # Run ingestion script ONCE with all valid paths
+        ingestion_script_path = COGNIBENCH_ROOT / "scripts/ingest_rlhf_data.py"
+        ingestion_command = [
+            sys.executable,
+            str(ingestion_script_path),
+            *[str(p) for p in valid_raw_paths],  # Pass all valid paths as separate args
+            "--output-dir",
+            str(combined_output_dir),  # Use the new combined directory
+        ]
+
+        output_queue.put(
+            f"INFO: Running combined ingestion for {len(valid_raw_paths)} files into {combined_output_dir}..."
+        )
+        logger.debug(
+            "Running combined ingestion command: %s", " ".join(ingestion_command)
+        )
+
+        try:
+            process = subprocess.run(
+                ingestion_command,
+                check=True,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+            ingested_path_str = process.stdout.strip()
+            if not ingested_path_str:
+                raise ValueError("Ingestion script did not output a file path.")
+            ingested_file_path_obj = Path(
+                ingested_path_str
+            )  # Use a different variable name
+            if not ingested_file_path_obj.is_file():
+                raise FileNotFoundError(
+                    f"Ingested file path reported by script but not found: {ingested_file_path_obj}"
                 )
-                output_queue.put(error_msg)
-                logger.error(error_msg, exc_info=True)
-                ingestion_success = False
-                break
+            ingested_file_path = str(
+                ingested_file_path_obj
+            )  # Store the single path string
+            logger.info(
+                f"Combined ingestion successful. Output file: {ingested_file_path}"
+            )
+            output_queue.put(
+                f"INFO: Combined ingestion successful. Output: {ingested_file_path}"
+            )
+
+        except (subprocess.CalledProcessError, FileNotFoundError, ValueError) as e:
+            ingestion_success = False
+            error_message = f"ERROR: Combined ingestion failed: {e}"
+            output_queue.put(error_message)
+            logger.error(error_message, exc_info=True)
+            if isinstance(e, subprocess.CalledProcessError):
+                if e.stdout:
+                    logger.error("Ingestion stdout:\n%s", e.stdout)
+                if e.stderr:
+                    logger.error("Ingestion stderr:\n%s", e.stderr)
+        except Exception as e:
+            ingestion_success = False
+            error_message = f"ERROR: Unexpected error during combined ingestion: {e}"
+            output_queue.put(error_message)
+            logger.error(error_message, exc_info=True)
 
         if not ingestion_success:
             output_queue.put("ERROR: Evaluation aborted due to ingestion failure.")
             logger.error("Evaluation aborted due to ingestion failure.")
-            # No need to call core runner if ingestion failed
-            results_paths = None  # Ensure results_paths is None
+            results_paths = None
+            return  # Exit the run function
+
         elif stop_event.is_set():
+            # Check stop event again *after* the potentially long ingestion process
             output_queue.put("INFO: Evaluation cancelled after ingestion.")
             logger.info("Evaluation cancelled after ingestion.")
-            results_paths = None  # Ensure results_paths is None
-        else:
-            # --- Step 2: Core Evaluation (using ingested paths) ---
-            output_queue.put("INFO: Starting core evaluation step...")
-            logger.info("Starting core evaluation step with ingested files...")
-            # Update config with ingested paths BEFORE passing to core runner
-            config.input_options.file_paths = ingested_file_paths
-            logger.info(
-                f"Updated config file paths for core runner: {ingested_file_paths}"
-            )
+            results_paths = None
+            return  # Exit if stopped
 
-            # Determine if structured evaluation should be used.
-            use_structured = bool(config.structuring_settings)
+        # --- Step 2: Core Evaluation (using the single combined ingested path) ---
+        output_queue.put("INFO: Starting core evaluation step...")
+        logger.info(
+            f"Starting core evaluation step with combined ingested file: {ingested_file_path}"
+        )
+        # Update config with the single combined ingested file path
+        config.input_options.file_paths = [ingested_file_path]
+        logger.info(
+            f"Updated config file paths for core runner: {[ingested_file_path]}"
+        )
 
-            results_paths = run_batch_evaluation_core(
-                config=config,  # Pass the UPDATED config
-                output_dir=output_dir,
-                use_structured=use_structured,
-                stop_event=stop_event,
-            )
+        # Determine if structured evaluation should be used.
+        use_structured = bool(config.structuring_settings)
+
+        results_paths = run_batch_evaluation_core(
+            config=config,  # Pass the UPDATED config
+            output_dir=combined_output_dir,  # Use the directory created for combined ingestion
+            use_structured=use_structured,
+            stop_event=stop_event,
+        )
 
         if stop_event.is_set():
             output_queue.put("INFO: Evaluation run cancelled by user.")
@@ -875,7 +921,7 @@ def load_and_process_results(
 
 def render_results_selector():
     """Renders UI to select existing result folders."""
-    st.header("Load Existing Results (Optional)")
+    st.header("Load Existing Results")
     st.info(
         "Select previously generated batch result folders (containing `_final_results.json`) to view."
     )
@@ -981,6 +1027,9 @@ def display_summary_stats(summary_data: Dict[str, Any]):
     total_evals = summary_data.get("total_evaluations_processed", 0)
     total_tasks = summary_data.get("total_tasks_processed", 0)
     total_time_sec = summary_data.get("total_evaluation_time_seconds", 0.0)
+    avg_time_per_task = summary_data.get(
+        "average_time_per_task_seconds", 0.0
+    )  # Extract avg time
     struct_calls = summary_data.get("total_structuring_api_calls", 0)
     judge_calls = summary_data.get("total_judging_api_calls", 0)
     processed_files = summary_data.get("processed_files_count", 0)
@@ -1000,12 +1049,13 @@ def display_summary_stats(summary_data: Dict[str, Any]):
 
     col1, col2, col3 = st.columns(3)
     col1.metric("Total Tasks Processed", f"{total_tasks:,}")
-    col2.metric("Total Evaluations Processed", f"{total_evals:,}")
+    col2.metric("Average Time per Task(s)", f"{avg_time_per_task:.2f}")
     col3.metric("Total Evaluation Time", total_time_fmt)
 
-    col4, col5 = st.columns(2)
-    col4.metric("Total Structuring API Calls", f"{struct_calls:,}")
-    col5.metric("Total Judging API Calls", f"{judge_calls:,}")
+    col4, col5, col6 = st.columns(3)  # Change to 3 columns
+    col4.metric("Total Evaluations Processed", f"{total_evals:,}")
+    col5.metric("Total Structuring API Calls", f"{struct_calls:,}")
+    col6.metric("Total Judging API Calls", f"{judge_calls:,}")
 
     avg_times = summary_data.get("average_time_per_model_seconds", {})
     if avg_times:
@@ -1435,8 +1485,8 @@ def display_results_table(df: pd.DataFrame):
                     disabled=True,
                 )
 
-            # Display Judge Evaluation Details
-            st.write("**Judge Evaluation Details**")
+            # Display Judging Evaluation Details
+            st.write("**Judging Evaluation Details**")
             judge_details = {}
             rubric_details = {}
             for col, value in detail_row.items():
@@ -1567,103 +1617,116 @@ def main() -> None:
     render_config_summary()
     st.markdown("---")
 
-    # --- Evaluation Execution and Progress ---
-    render_evaluation_progress(
-        st.session_state.last_run_output,
-        st.session_state.evaluation_running,
-        st.session_state.eval_duration_str,
+    # --- Action Selection ---
+    action = st.radio(
+        "Select Action:",
+        options=["Run New Evaluation", "Load Existing Results"],
+        key="action_mode",
+        horizontal=True,
     )
-
-    # --- Handle Evaluation Output Queue ---
-    if st.session_state.evaluation_running:
-        try:
-            while not st.session_state.output_queue.empty():
-                item = st.session_state.output_queue.get_nowait()
-                if item is None:  # End signal
-                    st.session_state.evaluation_running = False
-                    if st.session_state.eval_start_time:
-                        duration = time.time() - st.session_state.eval_start_time
-                        st.session_state.eval_duration_str = str(
-                            timedelta(seconds=int(duration))
-                        )
-                    logger.info("Evaluation thread signaled completion.")
-                    # Load results automatically if paths were received
-                    if (
-                        st.session_state.evaluation_results_paths
-                        and not st.session_state.evaluation_error
-                    ):
-                        logger.info(
-                            "Attempting to auto-load results after successful run."
-                        )
-                        (
-                            st.session_state.results_df,
-                            st.session_state.aggregated_summary,
-                        ) = load_and_process_results(
-                            st.session_state.evaluation_results_paths
-                        )
-                        if st.session_state.results_df is None:
-                            st.session_state.evaluation_error = (
-                                "Failed to load results after run."
-                            )
-                            logger.error(
-                                "Auto-load failed after successful run signal."
-                            )
-                        else:
-                            logger.info("Auto-load successful.")
-                    st.rerun()  # Rerun to update UI after completion/loading
-                    break  # Exit loop after handling None
-                elif isinstance(item, dict):  # Structured message (results or error)
-                    if item.get("type") == "results":
-                        st.session_state.evaluation_results_paths = item.get(
-                            "paths", []
-                        )
-                        logger.info(
-                            f"Received result paths: {st.session_state.evaluation_results_paths}"
-                        )
-                    elif item.get("type") == "error":
-                        st.session_state.evaluation_error = item.get(
-                            "message", "Unknown error from worker."
-                        )
-                        st.session_state.evaluation_running = False  # Stop on error
-                        logger.error(
-                            f"Received error from worker: {st.session_state.evaluation_error}"
-                        )
-                        st.rerun()  # Update UI to show error
-                        break
-                elif isinstance(item, str):  # Log message
-                    st.session_state.last_run_output.append(item)
-                    # Limit log lines displayed to prevent browser slowdown
-                    max_log_lines = 500
-                    if len(st.session_state.last_run_output) > max_log_lines:
-                        st.session_state.last_run_output = (
-                            st.session_state.last_run_output[-max_log_lines:]
-                        )
-                    # No rerun here, let the progress renderer handle display updates periodically
-
-            # Add a small delay and rerun to periodically update the output display
-            if st.session_state.evaluation_running:
-                time.sleep(0.5)
-                st.rerun()
-
-        except queue.Empty:
-            # Queue is empty, wait for next cycle
-            if st.session_state.evaluation_running:
-                time.sleep(0.5)
-                st.rerun()
-        except Exception as e:
-            st.error(f"Error processing evaluation output queue: {e}")
-            logger.exception("Error processing output queue:")
-            st.session_state.evaluation_running = False
-            st.session_state.evaluation_error = str(e)
-            st.rerun()
-
     st.markdown("---")
 
-    # --- Results Loading and Display ---
-    render_results_selector()  # Allow loading previous results
+    # --- Conditional Rendering based on Action ---
+    if action == "Run New Evaluation":
+        # --- Evaluation Execution and Progress ---
+        render_evaluation_progress(
+            st.session_state.last_run_output,
+            st.session_state.evaluation_running,
+            st.session_state.eval_duration_str,
+        )
 
+        # --- Handle Evaluation Output Queue ---
+        if st.session_state.evaluation_running:
+            try:
+                while not st.session_state.output_queue.empty():
+                    item = st.session_state.output_queue.get_nowait()
+                    if item is None:  # End signal
+                        st.session_state.evaluation_running = False
+                        if st.session_state.eval_start_time:
+                            duration = time.time() - st.session_state.eval_start_time
+                            st.session_state.eval_duration_str = str(
+                                timedelta(seconds=int(duration))
+                            )
+                        logger.info("Evaluation thread signaled completion.")
+                        # Load results automatically if paths were received
+                        if (
+                            st.session_state.evaluation_results_paths
+                            and not st.session_state.evaluation_error
+                        ):
+                            logger.info(
+                                "Attempting to auto-load results after successful run."
+                            )
+                            (
+                                st.session_state.results_df,
+                                st.session_state.aggregated_summary,
+                            ) = load_and_process_results(
+                                st.session_state.evaluation_results_paths
+                            )
+                            if st.session_state.results_df is None:
+                                st.session_state.evaluation_error = (
+                                    "Failed to load results after run."
+                                )
+                                logger.error(
+                                    "Auto-load failed after successful run signal."
+                                )
+                            else:
+                                logger.info("Auto-load successful.")
+                        st.rerun()  # Rerun to update UI after completion/loading
+                        break  # Exit loop after handling None
+                    elif isinstance(
+                        item, dict
+                    ):  # Structured message (results or error)
+                        if item.get("type") == "results":
+                            st.session_state.evaluation_results_paths = item.get(
+                                "paths", []
+                            )
+                            logger.info(
+                                f"Received result paths: {st.session_state.evaluation_results_paths}"
+                            )
+                        elif item.get("type") == "error":
+                            st.session_state.evaluation_error = item.get(
+                                "message", "Unknown error from worker."
+                            )
+                            st.session_state.evaluation_running = False  # Stop on error
+                            logger.error(
+                                f"Received error from worker: {st.session_state.evaluation_error}"
+                            )
+                            st.rerun()  # Update UI to show error
+                            break
+                    elif isinstance(item, str):  # Log message
+                        st.session_state.last_run_output.append(item)
+                        # Limit log lines displayed to prevent browser slowdown
+                        max_log_lines = 500
+                        if len(st.session_state.last_run_output) > max_log_lines:
+                            st.session_state.last_run_output = (
+                                st.session_state.last_run_output[-max_log_lines:]
+                            )
+                        # No rerun here, let the progress renderer handle display updates periodically
+
+                # Add a small delay and rerun to periodically update the output display
+                if st.session_state.evaluation_running:
+                    time.sleep(0.5)
+                    st.rerun()
+
+            except queue.Empty:
+                # Queue is empty, wait for next cycle
+                if st.session_state.evaluation_running:
+                    time.sleep(0.5)
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Error processing evaluation output queue: {e}")
+                logger.exception("Error processing output queue:")
+                st.session_state.evaluation_running = False
+                st.session_state.evaluation_error = str(e)
+                st.rerun()
+
+    elif action == "Load Existing Results":
+        # --- Results Loading Section ---
+        render_results_selector()  # Allow loading previous results
+
+    # --- Results Display (Common to both actions if results are loaded/generated) ---
     if st.session_state.results_df is not None:
-        st.header("4. Evaluation Results")
+        st.header("Evaluation Results")  # Changed header number
         display_summary_stats(st.session_state.aggregated_summary)
         st.markdown("---")
         display_performance_plots(st.session_state.results_df)

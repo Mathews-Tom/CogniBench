@@ -1,8 +1,22 @@
 """
-Constants used by the CogniBench Streamlit application.
+Centralized constants for the CogniBench project.
 """
 
-# --- Global Color Map Constant ---
+from pathlib import Path
+
+# --- Core Paths ---
+# Assumes this file is in CogniBench/core/
+CORE_DIR = Path(__file__).parent
+COGNIBENCH_ROOT = CORE_DIR.parent
+APP_DIR = COGNIBENCH_ROOT / "cognibench_agent"  # Path to the Streamlit app directory
+DATA_DIR = COGNIBENCH_ROOT / "data"
+BASE_CONFIG_PATH = COGNIBENCH_ROOT / "config.yaml"
+PROMPT_TEMPLATES_DIR_ABS = COGNIBENCH_ROOT / "prompts"
+STRUCTURING_TEMPLATES_DIR = PROMPT_TEMPLATES_DIR_ABS / "structuring"
+JUDGING_TEMPLATES_DIR = PROMPT_TEMPLATES_DIR_ABS / "judging"
+
+
+# --- Global Color Map Constant (from cognibench_agent/constants.py) ---
 COLOR_MAP = {
     "Pass": "#28a745",
     "Yes": "#28a745",
@@ -16,7 +30,7 @@ COLOR_MAP = {
     "N/A": "#fd7e14",
 }
 
-# --- Model Definitions ---
+# --- Model Definitions (from cognibench_agent/constants.py) ---
 AVAILABLE_MODELS = {
     "OpenAI": {
         "O1": "o1",
@@ -40,6 +54,6 @@ AVAILABLE_MODELS = {
     },
 }
 
-# Default Structuring and Judging Models
+# Default Structuring and Judging Models (from cognibench_agent/constants.py)
 DEFAULT_STRUCTURING_MODEL = "GPT-4O"
 DEFAULT_JUDGING_MODEL = "GPT-4O"
