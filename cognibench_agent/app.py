@@ -85,14 +85,14 @@ def initialize_session_state():
         "uploaded_files_info": [],  # Store name and path
         "last_uploaded_files_key": None,
         "structuring_provider_select": list(AVAILABLE_MODELS.keys())[0],
-        "structuring_model_select": list(
-            AVAILABLE_MODELS[list(AVAILABLE_MODELS.keys())[0]].keys()
-        )[0],
+        # "structuring_model_select": list( # Default set below
+        #     AVAILABLE_MODELS[list(AVAILABLE_MODELS.keys())[0]].keys()
+        # )[0],
         "structuring_api_key_input": "",
         "judging_provider_select": list(AVAILABLE_MODELS.keys())[0],
-        "judging_model_select": list(
-            AVAILABLE_MODELS[list(AVAILABLE_MODELS.keys())[0]].keys()
-        )[0],
+        # "judging_model_select": list( # Default set below
+        #     AVAILABLE_MODELS[list(AVAILABLE_MODELS.keys())[0]].keys()
+        # )[0],
         "judging_api_key_input": "",
         "structuring_template_select": list(AVAILABLE_STRUCTURING_TEMPLATES.keys())[0]
         if AVAILABLE_STRUCTURING_TEMPLATES
@@ -120,6 +120,15 @@ def initialize_session_state():
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+    # Set default models if not already set
+    if "structuring_model_select" not in st.session_state:
+        st.session_state["structuring_model_select"] = "GPT-4.1"
+        logger.info("Initialized structuring_model_select to GPT-4.1")
+    if "judging_model_select" not in st.session_state:
+        st.session_state["judging_model_select"] = "GPT-4.1"
+        logger.info("Initialized judging_model_select to GPT-4.1")
+
 
     # Special handling for temp dir
     if st.session_state.temp_dir is None:
@@ -206,6 +215,7 @@ def render_config_ui():
                         st.session_state.structuring_provider_select
                     ].keys()
                 ),
+                # index=5, # Removed: Default set via session state
                 key="structuring_model_select",
             )
             st.text_input(
@@ -227,6 +237,7 @@ def render_config_ui():
                 options=list(
                     AVAILABLE_MODELS[st.session_state.judging_provider_select].keys()
                 ),
+                # index=5, # Removed: Default set via session state
                 key="judging_model_select",
             )
             st.text_input(
@@ -416,6 +427,7 @@ def generate_run_config() -> Optional[AppConfig]:
                     "api_key": struct_api_key,
                 },
                 "prompt_template_path": struct_template_path,
+                "structuring_model": struct_model_id, # Also set the older key
             },
             "evaluation_settings": {
                 "llm_client": {
@@ -424,6 +436,7 @@ def generate_run_config() -> Optional[AppConfig]:
                     "api_key": judge_api_key,
                 },
                 "prompt_template_path": judge_template_path,
+                "judge_model": judge_model_id, # Also set the older key
             },
             # Output options using the persistent directory
             "output_options": {

@@ -24,6 +24,7 @@ AVAILABLE_MODELS = {
         "GPT-4": "gpt-4",
         "GPT-3.5 Turbo": "gpt-3.5-turbo",
         "O1": "o1",
+        "GPT-4.1": "gpt-4.1",
     },
     "Anthropic": {
         "Claude 3.5 Haiku": "claude-3-5-haiku-latest",
