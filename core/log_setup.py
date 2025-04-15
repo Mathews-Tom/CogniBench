@@ -1,4 +1,10 @@
-# CogniBench/core/log_setup.py
+"""
+CogniBench Logging Setup.
+
+Configures project-wide logging, directing logs to timestamped files
+and controlling console output levels.
+"""
+
 import logging
 import sys
 from datetime import datetime  # Import datetime
@@ -9,8 +15,17 @@ from pathlib import Path
 BASE_LOG_DIR = Path(__file__).parent.parent / "logs"
 
 
-def setup_logging(log_level=logging.INFO):
-    """Configures project-wide logging."""
+def setup_logging(log_level: int = logging.INFO):
+    """
+    Configures project-wide logging.
+
+    Sets up file handlers for backend and frontend logs within a timestamped
+    directory, and a stream handler for console output.
+
+    Args:
+        log_level: The minimum logging level to capture (e.g., logging.INFO, logging.DEBUG).
+                    Defaults to logging.INFO.
+    """
     # Create the base log directory if it doesn't exist
     BASE_LOG_DIR.mkdir(parents=True, exist_ok=True)
 

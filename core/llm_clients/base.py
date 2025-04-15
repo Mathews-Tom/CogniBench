@@ -1,5 +1,11 @@
-# CogniBench - Base LLM Client Interface
-# Version: 1.0
+"""
+CogniBench Base LLM Client Interface.
+
+Defines the abstract base class (ABC) for all LLM clients used within
+CogniBench, ensuring a consistent interface for model invocation.
+
+Version: 1.0.1
+"""
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional

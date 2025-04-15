@@ -1,24 +1,33 @@
-# CogniBench/scripts/review_flagged_evals.py
-# Version: 0.1 (Phase 4 - Basic Review Script)
+"""
+CogniBench Flagged Evaluations Review Script.
+
+Loads evaluation results from the standard JSON output file and displays
+evaluations that have been flagged for human review based on the
+'needs_human_review' flag.
+
+Version: 0.1.1 (Phase 6 - Cleanup Pass)
+"""
 
 import json
-import os
+from pathlib import Path  # Import Path
 from typing import Any, Dict, List, Optional
 
-# Define paths relative to the script's location
-SCRIPT_DIR = os.path.dirname(__file__)
-BASE_DIR = os.path.dirname(SCRIPT_DIR)  # Go up one level to CogniBench
-DATA_DIR = os.path.join(BASE_DIR, "data")
-EVALUATIONS_FILE_PATH = os.path.join(DATA_DIR, "evaluations.json")
+# Define paths relative to the script's location using pathlib
+SCRIPT_DIR = Path(__file__).resolve().parent
+BASE_DIR = SCRIPT_DIR.parent  # Go up one level to CogniBench
+DATA_DIR = BASE_DIR / "data"
+EVALUATIONS_FILE_PATH = (
+    DATA_DIR / "evaluations.json"
+)  # Default path, might need update if using JSONL now
 
 
-def load_json_data(file_path: str) -> Optional[List[Dict[str, Any]]]:
+def load_json_data(file_path: Path) -> Optional[List[Dict[str, Any]]]:
     """Loads list data from a JSON file."""
-    if not os.path.exists(file_path):
+    if not file_path.exists():
         print(f"Error: Data file not found at {file_path}")
         return None
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with file_path.open("r", encoding="utf-8") as f:
             data = json.load(f)
             if not isinstance(data, list):
                 print(f"Error: Data in {file_path} is not a JSON list.")
@@ -51,7 +60,7 @@ def display_flagged_evaluations(evaluations: List[Dict[str, Any]]):
         print(f"   Ideal Resp ID: {eval_item.get('ideal_response_id', 'N/A')}")
         print(f"   Created At:    {eval_item.get('created_at', 'N/A')}")
         print(f"   Review Status: {eval_item.get('human_review_status', 'N/A')}")
-        print(f"   Review Reasons:")
+        print("   Review Reasons:")
         reasons = eval_item.get("review_reasons", [])
         if reasons:
             for reason in reasons:
@@ -77,7 +86,9 @@ def display_flagged_evaluations(evaluations: List[Dict[str, Any]]):
 
 
 if __name__ == "__main__":
-    print(f"Loading evaluations from: {EVALUATIONS_FILE_PATH}")
+    print(
+        f"Loading evaluations from: {EVALUATIONS_FILE_PATH}"
+    )  # Note: This script assumes evaluations.json, might need update for .jsonl
     all_evaluations = load_json_data(EVALUATIONS_FILE_PATH)
 
     if all_evaluations is not None:

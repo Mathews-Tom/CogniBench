@@ -1,29 +1,43 @@
-# CogniBench - Helper Script to Show Evaluation Data
-# Version: 0.1 (Phase 2)
+"""
+CogniBench Evaluation Data Display Script (Potentially Outdated).
+
+Loads data from various (potentially legacy) JSON files (prompts, model responses,
+ideal responses, evaluations) and displays the details for a specific evaluation ID.
+
+NOTE: This script assumes a data structure (separate JSON files, evaluations.json)
+that might be outdated compared to the current ingestion and output formats
+(single ingested file, evaluations.jsonl). It may require updates to function correctly.
+
+Version: 0.1.1 (Phase 6 - Cleanup Pass)
+"""
 
 import argparse
 import json
-import os
+from pathlib import Path  # Import Path
 from typing import Any, Dict, List, Optional
 
 # --- Configuration ---
-# Assuming script is run from the root CogniBench directory
-# Or adjust paths as needed
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
-PROMPTS_FILE = os.path.join(DATA_DIR, "prompts.json")
-MODEL_RESPONSES_FILE = os.path.join(DATA_DIR, "model_responses.json")
-IDEAL_RESPONSES_FILE = os.path.join(DATA_DIR, "ideal_responses.json")
-EVALUATIONS_FILE = os.path.join(DATA_DIR, "evaluations.json")
+# Define paths using pathlib relative to the script's location
+SCRIPT_DIR = Path(__file__).resolve().parent
+BASE_DIR = SCRIPT_DIR.parent  # Go up one level to CogniBench
+DATA_DIR = BASE_DIR / "data"
+# Note: These file paths might point to legacy/non-existent files
+PROMPTS_FILE = DATA_DIR / "prompts.json"
+MODEL_RESPONSES_FILE = DATA_DIR / "model_responses.json"
+IDEAL_RESPONSES_FILE = DATA_DIR / "ideal_responses.json"
+EVALUATIONS_FILE = (
+    DATA_DIR / "evaluations.json"
+)  # Assumes .json, likely needs update to .jsonl
 
 
 # --- Helper Functions ---
-def load_json_data(file_path: str) -> Optional[List[Dict[str, Any]]]:
+def load_json_data(file_path: Path) -> Optional[List[Dict[str, Any]]]:
     """Loads data from a JSON file containing a list of objects."""
-    if not os.path.exists(file_path):
+    if not file_path.exists():
         print(f"Error: Data file not found at {file_path}")
         return None
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with file_path.open("r", encoding="utf-8") as f:
             data = json.load(f)
             if not isinstance(data, list):
                 print(f"Error: Expected a JSON list in {file_path}")
@@ -46,7 +60,7 @@ def find_item_by_id(
     return None
 
 
-def print_section(title: str, content: Any):
+def print_section(title: str, content: Any) -> None:
     """Helper to print sections clearly."""
     print("\n" + "=" * 10 + f" {title} " + "=" * 10)
     if isinstance(content, dict):
@@ -59,7 +73,8 @@ def print_section(title: str, content: Any):
 
 
 # --- Main Logic ---
-def main():
+def main() -> None:
+    """Parses evaluation ID argument and displays associated data."""
     parser = argparse.ArgumentParser(
         description="Display data for a specific CogniBench evaluation."
     )

@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from CogniBench.core.workflow import run_evaluation_workflow
 

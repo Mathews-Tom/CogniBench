@@ -12,17 +12,10 @@ import os
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, List, Optional, Union
 
 import yaml
-from pydantic import (
-    BaseModel,
-    Field,
-    FilePath,
-    ValidationError,
-    field_validator,
-    model_validator,
-)
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +92,8 @@ class LLMClientConfig(BaseModel):
     # Automatically substitute env vars for api_key before validation
     @field_validator("api_key", mode="before")
     @classmethod
-    def substitute_api_key(cls, v):
+    def substitute_api_key(cls, v: Any) -> Any:
+        """Substitute environment variables in the api_key field."""
         return _substitute_env_vars(v, "llm_client.api_key")
 
 
@@ -113,12 +107,15 @@ class InputOptions(BaseModel):
         None, description="List of paths to input JSON files for batch processing."
     )
 
-    @model_validator(mode='after')
-    def check_at_least_one_input(self) -> 'InputOptions':
+    @model_validator(mode="after")
+    def check_at_least_one_input(self) -> "InputOptions":
+        """Validate that input sources are configured (currently allows dynamic paths)."""
+        # Original validation commented out to allow file_paths to be provided
+        # dynamically by the Streamlit app or other runners.
         # if not self.data_file and not self.file_paths:
         #     raise ValueError("Either 'data_file' or 'file_paths' must be provided in input_options")
-        # Allow empty file_paths if provided dynamically by the app
         return self
+
 
 class StructuringSettings(BaseModel):
     """Configuration for the structuring phase."""
@@ -203,12 +200,15 @@ class OutputOptions(BaseModel):
     """Configuration for output files."""
 
     output_dir: str = Field(
-        "data", description="Default directory for saving all output files (JSONL, JSON, etc.)."
+        "data",
+        description="Default directory for saving all output files (JSONL, JSON, etc.).",
     )
     results_file_stem: str = Field(
-        "evaluation_results", description="Base name for the final evaluation results JSON file (e.g., 'Batch-001_final_results'). The specific name will be constructed."
+        "evaluation_results",
+        description="Base name stem used for constructing final output filenames (e.g., 'Batch-001' leads to 'Batch-001_final_results.json').",
     )
     # Note: The output directory will be created if it doesn't exist.
+
 
 class AppConfig(BaseModel):
     """Root model for the application configuration."""
@@ -226,6 +226,7 @@ class AppConfig(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def substitute_all_env_vars(cls, data: Any) -> Any:
+        """Recursively substitute environment variables in the entire config dictionary."""
         if isinstance(data, dict):
             return _substitute_env_vars(data, "root")
         return data
@@ -294,7 +295,7 @@ def load_config(config_path: Union[str, Path, None] = None) -> AppConfig:
                 error["msg"],
             )
         raise
-    except Exception as e:
+    except Exception:
         logger.error(
             "An unexpected error occurred while loading configuration from %s",
             resolved_path,

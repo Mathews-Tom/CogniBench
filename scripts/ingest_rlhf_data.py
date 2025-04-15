@@ -1,3 +1,13 @@
+"""
+CogniBench RLHF Data Ingestion Script.
+
+Loads raw RLHF JSON data (typically from external sources), extracts relevant
+fields needed for CogniBench evaluations (prompt, ideal response, model responses,
+metadata, human evaluations), performs basic transformations (like boolean conversion
+for Yes/No scores), and saves the processed data into a new timestamped JSON file
+suitable for use with the CogniBench evaluation runners.
+"""
+
 import argparse
 import datetime
 import json
@@ -27,9 +37,18 @@ except ImportError:
 logger = logging.getLogger("backend")
 
 
-def robust_latex_conversion(text):
+from typing import Any, Dict, List, Optional, Union  # Add imports
+
+
+def robust_latex_conversion(text: Optional[str]) -> Optional[str]:
     """
     Robustly converts common LaTeX formatting issues to plain text.
+
+    Args:
+        text: The input string, potentially containing LaTeX.
+
+    Returns:
+        The processed string with common LaTeX elements removed, or None if input was None.
     """
     if not text:
         return text
@@ -43,9 +62,19 @@ def robust_latex_conversion(text):
     return text.strip()
 
 
-def enhanced_final_answer_extraction(raw_pref_form):
+def enhanced_final_answer_extraction(
+    raw_pref_form: List[Dict[str, Any]],
+) -> Optional[str]:
     """
-    Enhanced extraction logic for final answers using improved regex patterns.
+    Enhanced extraction logic for final answers from raw preference form data.
+
+    Extracts the 'Final Answer' value and applies robust LaTeX conversion and stripping.
+
+    Args:
+        raw_pref_form: The list of dictionaries representing the raw preference evaluation form.
+
+    Returns:
+        The extracted and cleaned final answer string, or None if not found.
     """
     final_answer = extract_prompt_evaluation_value(raw_pref_form, "Final Answer")
     if final_answer:
@@ -56,8 +85,22 @@ def enhanced_final_answer_extraction(raw_pref_form):
     return final_answer
 
 
-def extract_prompt_evaluation_value(prompt_eval_list, key_name):
-    """Helper function to extract specific values from prompt_evaluation."""
+def extract_prompt_evaluation_value(
+    prompt_eval_list: List[Dict[str, Any]], key_name: str
+) -> Optional[Any]:
+    """
+    Helper function to extract a specific value from a list of prompt evaluation dictionaries.
+
+    Searches for a dictionary where the 'question' key matches `key_name` and returns
+    the corresponding 'human_input_value'.
+
+    Args:
+        prompt_eval_list: The list of prompt evaluation dictionaries.
+        key_name: The 'question' value to search for.
+
+    Returns:
+        The corresponding 'human_input_value', or None if not found.
+    """
     for item in prompt_eval_list:
         if item.get("question") == key_name:
             return item.get("human_input_value")
@@ -225,7 +268,7 @@ def ingest_rlhf_data(input_path: Path, output_path: Path):
         )
         # Print output path to stdout for capture by other scripts
         print(output_path_obj.resolve())
-    except IOError as e:
+    except IOError:
         logger.error("Error writing output file to %s", output_path_obj, exc_info=True)
         sys.exit(1)
 

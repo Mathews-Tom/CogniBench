@@ -1,5 +1,11 @@
-# CogniBench - OpenAI LLM Client Implementation
-# Version: 1.0
+"""
+CogniBench OpenAI LLM Client Implementation.
+
+Provides a concrete implementation of the BaseLLMClient for interacting with
+OpenAI models (GPT-3.5, GPT-4, etc.). Includes persistent caching using `shelve`.
+
+Version: 1.0.1
+"""
 
 import atexit
 import hashlib
@@ -7,7 +13,7 @@ import json
 import logging  # Import logging
 import os
 import shelve
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 from dotenv import load_dotenv
 from openai import OpenAI, OpenAIError
@@ -22,14 +28,24 @@ CACHE_FILENAME = "openai_cache"
 _cache = None
 
 
-def _close_cache():
+def _close_cache() -> None:
+    """Closes the shelve cache file if it's open."""
     global _cache
     if _cache:
         _cache.close()
         logger.debug("--- OpenAI Cache Closed ---")  # Changed to debug
 
 
-def _get_cache():
+def _get_cache() -> Union[shelve.Shelf, Dict]:
+    """
+    Opens or returns the existing shelve cache instance.
+
+    Registers an exit handler to close the cache automatically.
+    Falls back to an in-memory dictionary if shelve fails.
+
+    Returns:
+        The cache object (shelve.Shelf or dict).
+    """
     global _cache
     if _cache is None:
         try:
@@ -45,10 +61,11 @@ def _get_cache():
             _cache = {}  # Fallback to in-memory dict if shelve fails
     return _cache
 
+
 def clear_openai_cache():
     """Clears the persistent OpenAI API call cache."""
     global _cache
-    cache = _get_cache() # Ensure cache is loaded/initialized
+    cache = _get_cache()  # Ensure cache is loaded/initialized
     try:
         if isinstance(cache, shelve.Shelf):
             logger.info(f"Clearing OpenAI shelve cache ({CACHE_FILENAME})...")
@@ -58,13 +75,14 @@ def clear_openai_cache():
             # Alternatively, close and reopen, but clear should suffice
             logger.info("OpenAI shelve cache cleared.")
         elif isinstance(cache, dict):
-             logger.info("Clearing OpenAI in-memory cache...")
-             cache.clear()
-             logger.info("OpenAI in-memory cache cleared.")
+            logger.info("Clearing OpenAI in-memory cache...")
+            cache.clear()
+            logger.info("OpenAI in-memory cache cleared.")
         else:
-             logger.warning("Cache object is of unexpected type, cannot clear.")
+            logger.warning("Cache object is of unexpected type, cannot clear.")
     except Exception as e:
         logger.error(f"Error clearing OpenAI cache: {e}", exc_info=True)
+
 
 # --- End Cache Setup ---
 

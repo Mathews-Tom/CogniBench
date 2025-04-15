@@ -1,10 +1,16 @@
-# CogniBench - Batch Evaluation Script (Refactored)
-# This script orchestrates batch evaluation:
-# 1. Ingests raw data using ingest_rlhf_data.py
-# 2. Calls the core batch evaluation runner for processing and output generation.
+"""
+CogniBench Batch Evaluation Orchestration Script (Refactored).
+
+This script serves as the main entry point for running batch evaluations.
+It orchestrates the process by:
+1. Parsing command-line arguments for input file, config file, and options.
+2. Calling the `ingest_rlhf_data.py` script via subprocess to preprocess the raw input data.
+3. Calling the `run_batch_evaluation_core` function from the core library
+   to perform the actual evaluation workflow using the ingested data and configuration.
+4. Managing output directories and logging progress.
+"""
 
 import argparse
-import json
 import logging
 import subprocess
 import sys
@@ -70,7 +76,7 @@ def run_command(command_list: list[str]) -> Optional[subprocess.CompletedProcess
         return None
 
 
-def main():
+def main() -> None:
     """Parses arguments, runs ingestion, and calls the core batch evaluation runner."""
     parser = argparse.ArgumentParser(
         description="Run end-to-end CogniBench batch evaluation using core logic."
@@ -187,7 +193,7 @@ def main():
     )
 
     if final_results_path and final_results_path.is_file():
-        logger.info(f"--- Finished Step 2: Core Batch Evaluation successful. ---")
+        logger.info("--- Finished Step 2: Core Batch Evaluation successful. ---")
         logger.info(f"Final combined results saved to: {final_results_path}")
         # Optionally print the path for external tools
         print(f"FINAL_RESULTS_PATH: {final_results_path.resolve()}")

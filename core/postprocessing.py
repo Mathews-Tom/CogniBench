@@ -15,7 +15,6 @@ Version: 0.3 (Phase 5 - Code Quality Enhancements & SymPy Verification)
 
 import json
 import logging
-import traceback
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 # Setup logger for this module *before* potential logging during imports
@@ -24,16 +23,8 @@ logger = logging.getLogger("backend")
 
 # Attempt to import sympy for mathematical comparison
 try:
-    import sympy
-
     # Import specific sympy components needed
-    from sympy import (
-        Basic,
-        N,
-        SympifyError,  # N for numerical eval
-        simplify,
-        sympify,
-    )
+    from sympy import Basic, SympifyError, sympify
     from sympy.parsing.latex import parse_latex
 
     SYMPY_AVAILABLE = True
@@ -132,7 +123,7 @@ def _attempt_sympy_comparison(
     Returns:
         A tuple containing:
         - Comparison result (Optional[bool]): True if equivalent, False if not,
-          None if SymPy comparison could not be performed (e.g., parsing failed).
+            None if SymPy comparison could not be performed (e.g., parsing failed).
         - Comparison method (str): "SymPy" if comparison was successful, "String" if fallback needed.
     """
     comparison_method = "SymPy"
@@ -189,7 +180,7 @@ def verify_final_answer(
     Returns:
         A tuple containing:
         - Verification result (Optional[bool]): True if match, False if mismatch,
-          None if verification was skipped (e.g., missing input).
+            None if verification was skipped (e.g., missing input).
         - Verification message (str): Describes the outcome and the comparison method used.
     """
     norm_extracted = normalize_answer(extracted_answer)
@@ -266,9 +257,11 @@ def _check_trivial_justification(
         The criterion name if its justification is flagged as potentially trivial, otherwise None.
     """
     # Use attribute access for ConsistencyChecks object
-    if getattr(consistency_checks, 'enable_trivial_justification_check', True):
-        trivial_length_threshold = getattr(consistency_checks,
-            'trivial_justification_length_threshold', MIN_JUSTIFICATION_LENGTH
+    if getattr(consistency_checks, "enable_trivial_justification_check", True):
+        trivial_length_threshold = getattr(
+            consistency_checks,
+            "trivial_justification_length_threshold",
+            MIN_JUSTIFICATION_LENGTH,
         )
         if (
             score_norm in ["no", "partial"]
@@ -306,14 +299,11 @@ def _determine_aggregated_score(
     # Use attribute access for AggregationRules object
     if aggregation_rules.fail_if_any_no and "no" in scores_found:
         final_score = "Fail"
-    elif (
-        aggregation_rules.partial_if_any_partial
-        and "partial" in scores_found
-    ):
+    elif aggregation_rules.partial_if_any_partial and "partial" in scores_found:
         final_score = "Partial"
     elif aggregation_rules.pass_if_all_yes and all(
         s == "yes" for s in scores_found
-    ): # Assuming scores_found only contains 'yes', 'no', 'partial' after normalization
+    ):  # Assuming scores_found only contains 'yes', 'no', 'partial' after normalization
         final_score = "Pass"
     else:
         # This state might occur if only 'yes' scores are present but pass_if_all_yes is False,
@@ -351,13 +341,25 @@ def aggregate_scores(
         - 'review_reasons': List of strings explaining review flags.
     """
     # Use attribute access for AppConfig object
-    aggregation_settings = getattr(config, 'aggregation_settings', None)
-    aggregation_rules = getattr(aggregation_settings, 'aggregation_rules', None) if aggregation_settings else None
-    consistency_checks = getattr(aggregation_settings, 'consistency_checks', None) if aggregation_settings else None
+    aggregation_settings = getattr(config, "aggregation_settings", None)
+    aggregation_rules = (
+        getattr(aggregation_settings, "aggregation_rules", None)
+        if aggregation_settings
+        else None
+    )
+    consistency_checks = (
+        getattr(aggregation_settings, "consistency_checks", None)
+        if aggregation_settings
+        else None
+    )
 
     # Provide default empty objects if settings are missing (though validation should prevent this)
-    if aggregation_rules is None: aggregation_rules = {} # Or use default AggregationRules model
-    if consistency_checks is None: consistency_checks = {} # Or use default ConsistencyChecks model
+    if aggregation_rules is None:
+        # Or use default AggregationRules model
+        aggregation_rules = {}
+    if consistency_checks is None:
+        # Or use default ConsistencyChecks model
+        consistency_checks = {}
 
     results: Dict[str, Any] = {
         "aggregated_score": "Fail",  # Default to Fail
@@ -506,7 +508,7 @@ def perform_postprocessing(
     3. Verifies the extracted final answer against the correct answer (using SymPy or string comparison).
     4. Aggregates rubric scores and performs consistency checks (if parsing succeeded).
     5. Consolidates results, including verification status, aggregated score,
-       human review flags, and reasons for review.
+        human review flags, and reasons for review.
 
     Args:
         parsed_judge_response: The dictionary returned by `response_parser.parse_judge_response`.

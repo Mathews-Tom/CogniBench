@@ -1,5 +1,10 @@
-# CogniBench - Single Evaluation Script (Refactored)
-# This script now acts as a simple CLI wrapper around core evaluation logic.
+"""
+CogniBench Single Evaluation Script (Refactored).
+
+Provides a command-line interface to run the CogniBench evaluation workflow
+on a single input data file using the core evaluation logic. This script
+acts as a wrapper around the `run_evaluation_from_file` function.
+"""
 
 import argparse
 import logging
@@ -30,7 +35,7 @@ setup_logging(log_level=logging.INFO)  # Default to INFO for the script itself
 logger = logging.getLogger(__name__)  # Use __name__ for logger
 
 
-def main():
+def main() -> None:
     """Parses arguments and calls the core evaluation runner."""
     parser = argparse.ArgumentParser(
         description="Run CogniBench evaluation on a single input data file using core logic."

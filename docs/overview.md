@@ -287,7 +287,7 @@ The following diagram illustrates the sequence of operations when using the Stre
 * **Advanced Answer Verification:** Implement more sophisticated verification for different answer types (e.g., code execution, set comparison, numerical tolerance).
 * **Automated Ideal Response Generation (Research):** Explore using powerful LLMs within the CogniBench workflow to *generate* the `IDEAL RESPONSE` as a starting point for human experts, speeding up the process.
 * **Integration with L0:** Tightly integrate the L1 Judge output from CogniBench back into the L0 Golden Prompt Discovery process for richer failure analysis.
-* **User Interface (Streamlit):** Further enhance the Streamlit application (`streamlit_app/app.py`) for better analysis and usability:
+* **User Interface (Streamlit):** Further enhance the Streamlit application (`cognibench_agent/app.py`) for better analysis and usability:
   * **Refactoring Complete (April 2025):**
     * UI modularized into functions.
     * Direct integration with `core.evaluation_runner` (no subprocess).
@@ -298,6 +298,9 @@ The following diagram illustrates the sequence of operations when using the Stre
     * Enhanced charts: Clustered bars, "All Criteria" view, Model filtering.
     * Combined cache clearing button (Streamlit data + LLM cache).
     * Correct parsing of input/output data structures.
+    * Renamed UI directory to `cognibench_agent`.
+    * Fixed ingestion step within Streamlit workflow.
+    * Resolved session state modification error.
   * **Future Ideas:**
     * Interactive Filtering: Allow clicking on graph elements (e.g., bars) to filter the data tables below.
     * Detailed Task Modal: Implement a pop-up or dedicated view to show all details (prompt, responses, full evaluation) for a selected task row.

@@ -1,15 +1,22 @@
+"""
+CogniBench Streamlit Application.
+
+Provides a web-based user interface for running CogniBench evaluations,
+configuring models and prompts, uploading data, viewing results, and
+managing the evaluation process.
+"""
+
 import json
 import logging
-import os
 import queue
-import re
+import subprocess  # Added import
 import sys
 import tempfile
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta  # Added datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 # --- Add project root to sys.path ---
 APP_DIR = Path(__file__).parent
@@ -22,23 +29,9 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 import yaml
-from core.config import (
-    AggregationRules,
-    AggregationSettings,
-    AppConfig,
-    ConsistencyChecks,
-    EvaluationSettings,
-    HumanReviewFlagRules,
-    HumanReviewSettings,
-    InputOptions,
-    LLMClientConfig,
-    OutputOptions,
-    StructuringSettings,
-)
-from core.evaluation_runner import run_batch_evaluation_core  # Import the core runner
-from core.llm_clients.openai_client import (
-    clear_openai_cache,  # Import cache clearing function
-)
+from core.config import AppConfig
+from core.evaluation_runner import run_batch_evaluation_core
+from core.llm_clients.openai_client import clear_openai_cache
 from core.log_setup import setup_logging
 
 # --- Constants ---
@@ -368,9 +361,9 @@ def render_config_summary():
         struct_model_name, "N/A"
     )
     struct_template_name = st.session_state.structuring_template_select
-    struct_template_path = AVAILABLE_STRUCTURING_TEMPLATES.get(
-        struct_template_name, "Not Selected"
-    )
+    # struct_template_path = AVAILABLE_STRUCTURING_TEMPLATES.get( # Unused variable
+    #     struct_template_name, "Not Selected"
+    # )
 
     judge_provider = st.session_state.judging_provider_select
     judge_model_name = st.session_state.judging_model_select
@@ -378,9 +371,9 @@ def render_config_summary():
         judge_model_name, "N/A"
     )
     judge_template_name = st.session_state.judging_template_select
-    judge_template_path = AVAILABLE_JUDGING_TEMPLATES.get(
-        judge_template_name, "Not Selected"
-    )
+    # judge_template_path = AVAILABLE_JUDGING_TEMPLATES.get( # Unused variable
+    #     judge_template_name, "Not Selected"
+    # )
 
     st.markdown(f"""
 - **Structuring Model:** `{struct_provider}` - `{struct_model_name}` (`{struct_model_id}`) | Prompt: `{struct_template_name}`
@@ -429,19 +422,19 @@ def generate_run_config() -> Optional[AppConfig]:
         input_file_paths = [f["path"] for f in st.session_state.uploaded_files_info]
 
         # --- Define persistent output directory (Moved Before override_config) ---
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M") # User requested format
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M")  # User requested format
         if st.session_state.uploaded_files_info:
-             # Use the stem of the first uploaded file as the base name
-             first_file_name = st.session_state.uploaded_files_info[0]["name"]
-             base_name = Path(first_file_name).stem
-             # Clean up common suffixes if needed
-             for suffix in [".json", "_ingested", "_tasks"]:
-                 if base_name.endswith(suffix):
-                     base_name = base_name[:-len(suffix)]
-             folder_name = f"{base_name}_{timestamp}"
+            # Use the stem of the first uploaded file as the base name
+            first_file_name = st.session_state.uploaded_files_info[0]["name"]
+            base_name = Path(first_file_name).stem
+            # Clean up common suffixes if needed
+            for suffix in [".json", "_ingested", "_tasks"]:
+                if base_name.endswith(suffix):
+                    base_name = base_name[: -len(suffix)]
+            folder_name = f"{base_name}_{timestamp}"
         else:
-             # Fallback if somehow config is generated without files
-             folder_name = f"StreamlitRun_{timestamp}"
+            # Fallback if somehow config is generated without files
+            folder_name = f"StreamlitRun_{timestamp}"
 
         persistent_output_dir = DATA_DIR / folder_name
         logger.info(f"Setting persistent output directory: {persistent_output_dir}")
@@ -468,7 +461,9 @@ def generate_run_config() -> Optional[AppConfig]:
             },
             # Output options using the persistent directory
             "output_options": {
-                "output_dir": str(persistent_output_dir), # Use calculated persistent path
+                "output_dir": str(
+                    persistent_output_dir
+                ),  # Use calculated persistent path
                 # Ensure necessary save flags are True if not set in base config
                 "save_evaluations_jsonl": True,
                 "save_evaluations_json": True,
@@ -478,16 +473,19 @@ def generate_run_config() -> Optional[AppConfig]:
 
         # Deep merge override_config into base_config_data (simple update for now)
         # A proper deep merge function would be more robust
-        def deep_update(source, overrides):
+        def deep_update(
+            source: Dict[str, Any], overrides: Dict[str, Any]
+        ) -> Dict[str, Any]:
+            """Recursively update a dictionary."""
             for key, value in overrides.items():
                 if (
                     isinstance(value, dict)
                     and key in source
                     and isinstance(source[key], dict)
                 ):
-                    deep_update(source[key], value)
+                    deep_update(source[key], value)  # Recursive call
                 else:
-                    source[key] = value
+                    source[key] = value  # Update or add key
             return source
 
         final_config_data = deep_update(base_config_data, override_config)
@@ -551,18 +549,104 @@ def evaluation_worker(
         # Redirect stdout/stderr? The core runner should use logging.
         # For now, assume core runner logs appropriately.
 
-        # Extract necessary arguments for the core runner from config
-        output_dir = Path(config.output_options.output_dir)
-        # Determine if structured evaluation should be used.
-        # Assume True if structuring settings are present in the config.
-        use_structured = bool(config.structuring_settings)
+        # --- Step 1: Ingestion (Replicating script logic) ---
+        output_dir = Path(
+            config.output_options.output_dir
+        )  # Ensure output_dir is defined
+        output_queue.put("INFO: Starting ingestion step...")
+        logger.info("Starting ingestion step for Streamlit run...")
+        raw_file_paths_str = config.input_options.file_paths
+        ingested_file_paths = []
+        ingestion_success = True
 
-        results_paths = run_batch_evaluation_core(
-            config=config,
-            output_dir=output_dir,
-            use_structured=use_structured,
-            stop_event=stop_event,
-        )
+        for raw_path_str in raw_file_paths_str:
+            if stop_event.is_set():
+                ingestion_success = False
+                logger.warning("Stop event detected during ingestion loop.")
+                break
+
+            raw_path = Path(raw_path_str)
+            ingestion_script_path = COGNIBENCH_ROOT / "scripts/ingest_rlhf_data.py"
+            ingestion_command = [
+                sys.executable,
+                str(ingestion_script_path),
+                str(raw_path),
+                "--output-dir",  # Pass the specific batch output directory
+                str(output_dir),
+            ]
+            output_queue.put(f"INFO: Running ingestion for {raw_path.name}...")
+            logger.debug("Running ingestion command: %s", " ".join(ingestion_command))
+            try:
+                process = subprocess.run(
+                    ingestion_command,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                )
+                ingested_path_str = process.stdout.strip()
+                if not ingested_path_str:
+                    raise ValueError("Ingestion script did not output a file path.")
+                ingested_path = Path(ingested_path_str)
+                if not ingested_path.is_file():
+                    raise FileNotFoundError(
+                        f"Ingested file path reported but not found: {ingested_path}"
+                    )
+                ingested_file_paths.append(str(ingested_path))
+                output_queue.put(
+                    f"INFO: Ingestion successful for {raw_path.name} -> {ingested_path.name}"
+                )
+                logger.info(
+                    f"Ingestion successful for {raw_path.name} -> {ingested_path}"
+                )
+            except (subprocess.CalledProcessError, FileNotFoundError, ValueError) as e:
+                error_msg = f"ERROR: Ingestion failed for {raw_path.name}: {e}"
+                output_queue.put(error_msg)
+                logger.error(error_msg, exc_info=True)
+                if isinstance(e, subprocess.CalledProcessError):
+                    if e.stdout:
+                        logger.error("Ingestion stdout:\n%s", e.stdout)
+                    if e.stderr:
+                        logger.error("Ingestion stderr:\n%s", e.stderr)
+                ingestion_success = False
+                break  # Stop processing further files if one fails
+            except Exception as e:
+                error_msg = (
+                    f"ERROR: Unexpected error during ingestion for {raw_path.name}: {e}"
+                )
+                output_queue.put(error_msg)
+                logger.error(error_msg, exc_info=True)
+                ingestion_success = False
+                break
+
+        if not ingestion_success:
+            output_queue.put("ERROR: Evaluation aborted due to ingestion failure.")
+            logger.error("Evaluation aborted due to ingestion failure.")
+            # No need to call core runner if ingestion failed
+            results_paths = None  # Ensure results_paths is None
+        elif stop_event.is_set():
+            output_queue.put("INFO: Evaluation cancelled after ingestion.")
+            logger.info("Evaluation cancelled after ingestion.")
+            results_paths = None  # Ensure results_paths is None
+        else:
+            # --- Step 2: Core Evaluation (using ingested paths) ---
+            output_queue.put("INFO: Starting core evaluation step...")
+            logger.info("Starting core evaluation step with ingested files...")
+            # Update config with ingested paths BEFORE passing to core runner
+            config.input_options.file_paths = ingested_file_paths
+            logger.info(
+                f"Updated config file paths for core runner: {ingested_file_paths}"
+            )
+
+            # Determine if structured evaluation should be used.
+            use_structured = bool(config.structuring_settings)
+
+            results_paths = run_batch_evaluation_core(
+                config=config,  # Pass the UPDATED config
+                output_dir=output_dir,
+                use_structured=use_structured,
+                stop_event=stop_event,
+            )
 
         if stop_event.is_set():
             output_queue.put("INFO: Evaluation run cancelled by user.")
@@ -806,7 +890,7 @@ def load_and_process_results(
         # Basic type conversions or cleaning can happen here if needed
         # Example: df['complexity'] = df['complexity'].astype(str)
         return df, aggregated_summary
-    except Exception as e:
+    except Exception:
         logger.exception("Error creating DataFrame from results data:")
         return None, aggregated_summary
 
@@ -833,7 +917,8 @@ def render_results_selector():
         # Don't return early, still show the clear cache button
     else:
         # Only show selection if folders exist
-        selected_folders = st.multiselect(
+        # The result is stored in st.session_state.selected_results_folders via the key
+        st.multiselect(
             "Select result folder(s):",
             options=available_folders,
             key="selected_results_folders",
@@ -902,7 +987,7 @@ def render_results_selector():
         st.session_state.results_df = None
         st.session_state.aggregated_summary = None
         st.session_state.evaluation_results_paths = []
-        st.session_state.selected_results_folders = []  # Clear selection too
+        # st.session_state.selected_results_folders = [] # DO NOT directly modify widget state here
         st.success("Streamlit results cache and OpenAI LLM cache cleared.")
         time.sleep(1)  # Brief pause to show message
         st.rerun()
@@ -1279,7 +1364,7 @@ def display_results_table(df: pd.DataFrame):
             filtered_df = filtered_df[
                 filtered_df[needs_review_col].astype(bool) == review_bool
             ]
-        except:  # Fallback for string comparison if casting fails
+        except Exception:  # Fallback for string comparison if casting fails
             filtered_df = filtered_df[
                 filtered_df[needs_review_col].astype(str).str.lower()
                 == selected_review_status.lower()
@@ -1490,7 +1575,7 @@ def render_evaluation_progress(
 # --- Main App Logic ---
 
 
-def main():
+def main() -> None:
     """Main function to run the Streamlit app."""
     st.title("CogniBench Evaluation Runner")
 

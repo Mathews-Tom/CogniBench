@@ -3,5 +3,5 @@
 from .base import BaseLLMClient
 from .openai_client import OpenAIClient
 
-# Optionally define __all__ if you want to control `from .llm_clients import *`
-# __all__ = ['BaseLLMClient', 'OpenAIClient']
+# Define __all__ to control `from .llm_clients import *` and explicitly export
+__all__ = ["BaseLLMClient", "OpenAIClient"]

@@ -1,6 +1,5 @@
 # CogniBench/tests/core/test_postprocessing.py
 
-import pytest
 
 from CogniBench.core.postprocessing import perform_postprocessing
 

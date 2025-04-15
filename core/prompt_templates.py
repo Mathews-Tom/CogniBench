@@ -1,3 +1,10 @@
+"""
+CogniBench Prompt Template Loading.
+
+Provides a cached function to load prompt template files from disk.
+Also contains default prompt template strings as constants.
+"""
+
 import functools
 import logging
 from pathlib import Path
@@ -5,8 +12,25 @@ from pathlib import Path
 logger = logging.getLogger("backend")
 
 
-@functools.lru_cache(maxsize=32)
+@functools.lru_cache(maxsize=32)  # Cache loaded templates
 def load_prompt_template(template_path_str: str) -> str:
+    """
+    Loads a prompt template from the specified file path.
+
+    Handles resolving the path relative to the project root if a direct
+    path is not found. Caches results for efficiency.
+
+    Args:
+        template_path_str: The path to the template file, potentially relative
+                            to the project root.
+
+    Returns:
+        The content of the prompt template file as a string.
+
+    Raises:
+        FileNotFoundError: If the template file cannot be found at the specified
+                            path or relative to the project root.
+    """
     template_path = Path(template_path_str)
     if not template_path.is_file():
         project_root = Path(__file__).resolve().parent.parent

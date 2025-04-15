@@ -1,6 +1,5 @@
 # CogniBench/tests/core/test_response_parser.py
 
-import pytest
 
 from CogniBench.core.response_parser import parse_judge_response
 

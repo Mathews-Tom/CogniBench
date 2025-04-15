@@ -25,20 +25,24 @@ Evaluating LLMs on complex reasoning tasks, especially in specialized fields lik
   * Recommended temperature setting for evaluations is `0.0` to ensure deterministic, consistent, and reproducible outputs.
 * **Improved Error Handling:** Response parser reports all validation errors found, not just the first.
 
-* **Recent Enhancements:**
-  * **Robust JSON Parsing:** Implemented `safe_json_parse` to gracefully handle empty or malformed JSON inputs, significantly reducing parsing errors.
-  * **Improved SymPy Parsing:** Added `safe_sympy_parse` for robust mathematical expression parsing, gracefully handling parsing failures and falling back to string comparison.
-  * **Enhanced Logging:** Improved logging clarity and consistency, explicitly setting logging levels for file and console handlers to facilitate easier debugging and monitoring.
-  
-  * **Graph Regeneration from Existing Data:** Added functionality in the Streamlit UI to regenerate evaluation graphs directly from existing evaluation data without re-running evaluations. Users can select one or more folders containing previous evaluation results (`<BatchName>_final_results.json`) to quickly visualize past results.
-  * **Mutually Exclusive Actions:** Implemented a clear UI distinction between "Run Evaluations" and "Recreate Graphs from Existing Data" using a radio button selection. This ensures users explicitly choose one action at a time, preventing confusion and unintended operations.
-  * **Folder Sorting by Modification Time:** Enhanced folder selection by sorting available folders based on their modification time, displaying the most recently modified folders at the top for improved usability.
+* **Recent Enhancements (April 2025):**
+  * **Streamlit App Refactor:** Renamed the Streamlit directory from `streamlit_app` to `cognibench_agent` for clarity.
+  * **Streamlit Ingestion Fix:** Modified the Streamlit app (`cognibench_agent/app.py`) to correctly perform the data ingestion step (calling `scripts/ingest_rlhf_data.py`) before invoking the core evaluation runner, aligning its behavior with the command-line batch script and resolving runtime errors.
+  * **Core Runner Data Handling Fix:** Updated the core evaluation runner (`core/evaluation_runner.py`) to correctly read `prompt`, `ideal_response`, `final_answer`, and `model_responses` directly from the ingested data format, resolving issues where tasks were skipped.
+  * **Aggregation Logic Fix:** Corrected a case mismatch (`taskId` vs `task_id`) in the results aggregation logic within the core evaluation runner, ensuring final results are correctly populated.
+  * **Streamlit State Fix:** Resolved a `StreamlitAPIException` related to modifying widget state directly within the 'Clear Caches' button logic.
+  * **Robust JSON Parsing:** Implemented `safe_json_parse` to gracefully handle empty or malformed JSON inputs.
+  * **Improved SymPy Parsing:** Added `safe_sympy_parse` for robust mathematical expression parsing.
+  * **Enhanced Logging:** Improved logging clarity and consistency across modules.
+  * **Graph Regeneration from Existing Data:** Added functionality in the Streamlit UI to regenerate evaluation graphs from existing `_final_results.json` files.
+  * **Mutually Exclusive Actions:** Implemented UI controls to prevent simultaneous evaluation runs and graph regeneration.
+  * **Folder Sorting by Modification Time:** Enhanced folder selection in the UI.
 * **Data Management:** Structured way to handle prompts, ideal responses, model responses, and evaluation results. Output files are organized into timestamped subdirectories for each batch run.
 * **Batch Processing:** Includes scripts for ingesting raw data and running evaluations on entire batches.
 * **Combined Results:** Generates a final JSON file (`_final_results.json`) grouping results by task for easier comparison across models. This file now includes the raw `model_response` text alongside structured and judged evaluations.
 * **Configurable Logging:** Timestamped log files and configurable console output levels. Includes detailed logs for structuring and judging LLM calls within the core workflow. Logs are now stored in timestamped directories (e.g., `logs/YYYYMMDD_HHMM/`) with separate files for backend (`backend.log`) and Streamlit (`streamlit.log`) operations.
 * **API Interface:** (Optional) Provides an API for programmatic interaction (loads config on startup).
-* **Streamlit UI:** A user-friendly interface (`streamlit_app/`) for:
+* **Streamlit UI:** A user-friendly interface (`cognibench_agent/`) for:
   * Uploading batch files.
   * Configuring Structuring and Judging models (provider, model, template, API key).
   * Viewing configuration summaries and source files (prompts, `config.yaml`).
@@ -79,7 +83,7 @@ CogniBench/
 ├── scripts/              # Utility and execution scripts
 │   ├── ingest_rlhf_data.py       # Script to convert raw data to CogniBench format
 │   └── run_batch_evaluation.py   # Script to run ingestion and evaluation for a batch
-├── streamlit_app/        # Streamlit application for UI-based interaction
+├── cognibench_agent/     # Streamlit application for UI-based interaction
 ├── tests/                # Unit and integration tests
 ├── .gitignore
 ├── .python-version       # Specifies Python version (likely for pyenv)
@@ -122,7 +126,7 @@ CogniBench/
 Provides a graphical interface for running evaluations.
 
 ```bash
-streamlit run streamlit_app/app.py
+streamlit run cognibench_agent/app.py
 ```
 
 1.  Launch the app using the command above from the `CogniBench` root directory.

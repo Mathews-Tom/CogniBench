@@ -5,7 +5,6 @@ CogniBench Evaluation Workflow Module.
 Version: 0.4 (Phase 6 - Structured Input and Logging Enhancements)
 """
 
-import functools
 import json
 import logging
 import time  # Added import
@@ -36,16 +35,22 @@ MAX_RETRIES: int = 3
 def _parse_json_string(
     json_string: Optional[str], task_id: str, field_name: str
 ) -> Union[Dict[str, Any], List[Any], str, None]:
-    """Attempts to parse a JSON string, potentially embedded in markdown code fences.
+    """
+    Attempts to parse a JSON string, potentially embedded in markdown code fences.
+
+    Handles stripping common markdown code fences (```json ... ``` or ``` ... ```)
+    before attempting to parse the content using `json.loads`. Logs warnings
+    if parsing fails but returns the original string in such cases.
 
     Args:
-        json_string: The string value to parse.
-        task_id: The task ID for logging context.
-        field_name: The name of the field being parsed for logging context.
+        json_string: The string value potentially containing JSON.
+        task_id: The identifier for the current task, used for logging context.
+        field_name: The name of the field being parsed, used for logging context.
 
     Returns:
-        The parsed Python object (dict or list) if successful,
-        otherwise the original string. Returns None if input is None.
+        The parsed Python object (dict or list) if JSON parsing is successful.
+        Returns the original string if parsing fails or if the input is not a string.
+        Returns None if the input `json_string` is None.
     """
     if json_string is None:
         return None
@@ -121,15 +126,25 @@ def run_evaluation_workflow(
         # Access config attributes directly
         llm_config = config.llm_client
         eval_config = config.evaluation_settings
-        structuring_config = config.structuring_settings # Get structuring settings
+        structuring_config = config.structuring_settings  # Get structuring settings
 
         # Use attribute access, provide defaults if attributes might be missing (though validation should ensure they exist)
-        judge_llm_provider: str = getattr(llm_config, 'provider', DEFAULT_JUDGE_LLM_PROVIDER)
+        # judge_llm_provider: str = getattr(llm_config, "provider", DEFAULT_JUDGE_LLM_PROVIDER) # Unused
         # Judge model comes from evaluation_settings
-        judge_llm_model: str = getattr(eval_config, 'judge_model', getattr(llm_config, 'model', DEFAULT_JUDGE_LLM_MODEL))
-        prompt_template_path: str = getattr(eval_config, 'prompt_template', DEFAULT_PROMPT_TEMPLATE_PATH)
-        expected_criteria: Optional[List[str]] = getattr(eval_config, 'expected_criteria', None)
-        allowed_scores: Optional[List[str]] = getattr(eval_config, 'allowed_scores', None)
+        judge_llm_model: str = getattr(
+            eval_config,
+            "judge_model",
+            getattr(llm_config, "model", DEFAULT_JUDGE_LLM_MODEL),
+        )
+        prompt_template_path: str = getattr(
+            eval_config, "prompt_template", DEFAULT_PROMPT_TEMPLATE_PATH
+        )
+        expected_criteria: Optional[List[str]] = getattr(
+            eval_config, "expected_criteria", None
+        )
+        allowed_scores: Optional[List[str]] = getattr(
+            eval_config, "allowed_scores", None
+        )
 
         norm_prompt_content = normalize_text_formats(prompt)
 
@@ -142,7 +157,9 @@ def run_evaluation_workflow(
 
         # Structuring step (mandatory before judging)
         # Access structuring settings via attribute
-        structuring_template_path: str = getattr(structuring_config, 'prompt_template', DEFAULT_STRUCTURING_TEMPLATE_PATH)
+        structuring_template_path: str = getattr(
+            structuring_config, "prompt_template", DEFAULT_STRUCTURING_TEMPLATE_PATH
+        )
         structuring_prompt_template = load_prompt_template(structuring_template_path)
         if structuring_prompt_template is None:
             msg = f"Failed to load structuring prompt template from '{structuring_template_path}'."
@@ -153,7 +170,9 @@ def run_evaluation_workflow(
             "You are an expert structurer preparing responses for rigorous evaluation."
         )
         # Access structuring model via attribute
-        structuring_model_name = getattr(structuring_config, 'structuring_model', judge_llm_model)
+        structuring_model_name = getattr(
+            structuring_config, "structuring_model", judge_llm_model
+        )
 
         # --- Structure Model Response ---
         prompt_for_model_structuring = (

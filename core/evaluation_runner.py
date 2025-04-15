@@ -1,4 +1,10 @@
-# CogniBench/core/evaluation_runner.py
+"""
+CogniBench Evaluation Runner Module.
+
+Provides core functions to orchestrate the evaluation process for single tasks
+or batches of tasks defined in input files. It integrates various components
+like configuration loading, workflow execution, and output handling.
+"""
 
 import json
 import logging
@@ -60,58 +66,46 @@ def run_single_task_evaluation_core(
     Runs the evaluation workflow for a single task dictionary.
     Processes one task, evaluating multiple model responses against the ideal.
     """
-    task_id = task_data.get("taskId", "unknown_task")  # Use 'taskId' from input JSON
-    prompt_text = None
-    ideal_response_text = None
-    model_responses_raw = []
-    structured_ideal_response = None  # Not present in this input format
-    correct_answer = (
-        None  # Not directly present, might be in signal.raw_preference_evaluation_form
-    )
+    # --- Extract data directly from ingested task_data dictionary ---
+    task_id = task_data.get("task_id", "unknown_task")  # Use task_id from ingested data
+    prompt_text = task_data.get("prompt")
+    ideal_response_text = task_data.get("ideal_response")
+    correct_answer = task_data.get("final_answer")  # Get ground truth final answer
+    model_responses_raw = task_data.get(
+        "model_responses", []
+    )  # Get model responses list
+    structured_ideal_response = None  # Still not expected in this format
 
-    # Extract data from messages array
-    messages = task_data.get("messages", [])
-    for message in messages:
-        role = message.get("role")
-        if role == "user":
-            prompt_text = message.get("text")
-            # Potentially extract metadata like subject/complexity from prompt_evaluation here if needed
-        elif role == "assistant":
-            model_responses_raw = message.get("response_options", [])
-            signal_data = message.get("signal", {})
-            ideal_response_text = signal_data.get("ideal_response")
-            # Extract final_answer ground truth if available
-            pref_eval_form = signal_data.get("raw_preference_evaluation_form", [])
-            for item in pref_eval_form:
-                if item.get("question") == "Final Answer":
-                    correct_answer = item.get("human_input_value")
-                    break
-
-    # Transform model_responses_raw into the expected format
+    # Transform model_responses_raw into the expected format (if needed, structure matches)
     model_responses = []
-    for resp_option in model_responses_raw:
-        model_id = resp_option.get("model_id")
-        text = resp_option.get("text")
-        if model_id and text is not None:  # Ensure both exist
-            model_responses.append({"model_id": model_id, "response_text": text})
-        else:
-            logger.warning(
-                "Task [%s]: Skipping invalid model response option: %s",
-                task_id,
-                resp_option,
-            )
+    if isinstance(model_responses_raw, list):
+        for resp_option in model_responses_raw:
+            model_id = resp_option.get("model_id")
+            text = resp_option.get(
+                "response_text"
+            )  # Key is response_text in ingested data
+            if model_id and text is not None:
+                model_responses.append({"model_id": model_id, "response_text": text})
+            else:
+                logger.warning(
+                    "Task [%s]: Skipping invalid model response option: %s",
+                    task_id,
+                    resp_option,
+                )
+    else:
+        logger.warning("Task [%s]: 'model_responses' field is not a list.", task_id)
 
     task_results = []
     task_success = True
 
-    # Check if essential data was found
+    # Check if essential data was found from direct extraction
     if not prompt_text or not ideal_response_text:
         logger.warning(
-            "Task [%s]: Skipping task due to missing prompt ('%s') or ideal_response ('%s') in messages.",
+            "Task [%s]: Skipping task due to missing 'prompt' (%s) or 'ideal_response' (%s) in ingested data.",
             task_id,
             "found" if prompt_text else "missing",
             "found" if ideal_response_text else "missing",
-        )  # Removed extra task_id and closed parenthesis
+        )
         return [], False
 
     if structured_ideal_cache is None:
@@ -466,7 +460,9 @@ def run_batch_evaluation_core(
 
             # Now build the map from the extracted list
             ingested_data_map = {
-                task.get("taskId", f"unknown_{i}"): task
+                task.get(
+                    "task_id", f"unknown_{i}"
+                ): task  # Use lowercase 'task_id' from ingested data
                 for i, task in enumerate(ingested_tasks_list)
             }  # Use .get() and taskId
 
@@ -483,7 +479,6 @@ def run_batch_evaluation_core(
                 total_evaluations_processed += 1
                 task_id = evaluation.get("task_id")
                 model_id = evaluation.get("model_id")
-                evaluation_id = evaluation.get("evaluation_id")
 
                 if not task_id or not model_id:
                     continue  # Skip if essential IDs missing
@@ -502,44 +497,32 @@ def run_batch_evaluation_core(
                 if not original_task_data:
                     continue  # Skip if original task missing
 
-                # Extract prompt, ideal response, etc., from original_task_data messages
-                original_prompt = None
-                original_ideal_response = None
-                original_model_responses_dict = {}  # Store model_id -> text
-                original_final_answer_gt = None
+                # Extract prompt, ideal response, etc., directly from original_task_data (ingested format)
+                original_prompt = original_task_data.get("prompt")
+                original_ideal_response = original_task_data.get("ideal_response")
+                original_final_answer_gt = original_task_data.get(
+                    "final_answer"
+                )  # Already extracted by ingestion
                 original_metadata = original_task_data.get(
                     "metadata", {}
-                )  # Keep original metadata
+                )  # Already extracted by ingestion
 
-                messages = original_task_data.get("messages", [])
-                for message in messages:
-                    role = message.get("role")
-                    if role == "user":
-                        original_prompt = message.get("text")
-                        # Extract metadata from prompt_evaluation if needed
-                        prompt_eval = message.get("prompt_evaluation", [])
-                        for item in prompt_eval:
-                            q = item.get("question", "").lower()
-                            v = item.get("human_input_value")
-                            if q and v:
-                                original_metadata[q] = v  # Add subject/complexity etc.
-                    elif role == "assistant":
-                        signal_data = message.get("signal", {})
-                        original_ideal_response = signal_data.get("ideal_response")
-                        # Extract ground truth final answer
-                        pref_eval_form = signal_data.get(
-                            "raw_preference_evaluation_form", []
-                        )
-                        for item in pref_eval_form:
-                            if item.get("question") == "Final Answer":
-                                original_final_answer_gt = item.get("human_input_value")
-                                break
-                        # Extract model responses
-                        for resp_option in message.get("response_options", []):
-                            m_id = resp_option.get("model_id")
-                            text = resp_option.get("text")
-                            if m_id and text is not None:
-                                original_model_responses_dict[m_id] = text
+                # Get model responses directly from the ingested data structure
+                original_model_responses_dict = {}
+                model_responses_list = original_task_data.get("model_responses", [])
+                if isinstance(model_responses_list, list):
+                    for resp_option in model_responses_list:
+                        m_id = resp_option.get("model_id")
+                        text = resp_option.get(
+                            "response_text"
+                        )  # Key is response_text in ingested data
+                        if m_id and text is not None:
+                            original_model_responses_dict[m_id] = text
+                else:
+                    logger.warning(
+                        "Task [%s]: 'model_responses' in ingested data is not a list.",
+                        task_id,
+                    )
 
                 # Get structured responses from the current evaluation result
                 structured_ideal_response_obj = evaluation.get(

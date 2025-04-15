@@ -221,7 +221,7 @@ def _validate_evaluation_criteria(
     Returns:
         A tuple containing:
         - validated_evaluation_output (EvaluationDict): A dictionary containing only the
-          validated criteria, preserving original key casing from the input.
+            validated criteria, preserving original key casing from the input.
         - all_errors (List[str]): A list of all validation error messages found.
     """
     validated_evaluation_output: EvaluationDict = {}
@@ -363,9 +363,9 @@ def parse_judge_response(
     Returns:
         A dictionary representing the parsing outcome:
         - On success: The original parsed dictionary, with the 'evaluation' key's value
-          replaced by a validated version containing only the expected criteria
-          that passed validation (preserving original key casing). Example:
-          {'evaluation': {'Problem Understanding': {'score': 'Yes', ...}, ...}, 'overall_comment': '...'}
+            replaced by a validated version containing only the expected criteria
+            that passed validation (preserving original key casing). Example:
+            {'evaluation': {'Problem Understanding': {'score': 'Yes', ...}, ...}, 'overall_comment': '...'}
         - On failure: A dictionary {'error': message} describing the failure reason(s).
     """
     logger.debug("Attempting to parse judge response content.")

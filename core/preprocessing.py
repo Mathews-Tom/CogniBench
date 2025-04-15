@@ -13,7 +13,7 @@ import json
 import logging
 import re
 import unicodedata
-from typing import List, Optional, Pattern
+from typing import Optional
 
 # Setup logger for this module
 logger = logging.getLogger("backend")

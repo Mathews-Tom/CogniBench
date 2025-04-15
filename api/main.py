@@ -1,14 +1,18 @@
-# CogniBench - API Layer
-# Version: 0.1 (Phase 3 - Basic Setup)
+"""
+CogniBench API Layer.
+
+Provides a FastAPI interface for submitting evaluation tasks and retrieving results.
+Handles API key authentication, background task processing for evaluations,
+and interaction with the core CogniBench workflow and configuration.
+
+Version: 0.1.1 (Phase 3 - Cleanup Pass)
+"""
 
 import json
 import logging  # Added
 import os
-import sys  # Added
 import uuid
-from datetime import datetime
 from pathlib import Path  # Re-add Path import
-from typing import Optional  # Keep Optional if needed elsewhere, remove others if not
 
 from core.config import AppConfig, load_config  # Import new config loader and model
 from core.log_setup import setup_logging  # Use relative import
@@ -19,14 +23,14 @@ from dotenv import load_dotenv
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Security
 from fastapi.security import APIKeyHeader
 
+# Import schemas after other dependencies but before local code execution
+from .schemas import EvaluationRequest, EvaluationResponse, EvaluationResultData
+
 # Setup logging first
 setup_logging()
 # Note: FastAPI has its own logging, but we use 'backend' for our app logic.
 logger = logging.getLogger("backend")
 logging.basicConfig(level=logging.INFO)  # Basic config for startup logs
-
-# Import schemas and potentially core functions if needed later
-from .schemas import EvaluationRequest, EvaluationResponse, EvaluationResultData
 
 # --- Configuration Loading (Now handled by core.config) ---
 # Old load_config and validate_config functions removed.
@@ -96,11 +100,23 @@ async def health_check():
 )
 async def submit_evaluation(
     request: EvaluationRequest, background_tasks: BackgroundTasks
-):
+) -> EvaluationResponse:
     """
-    Accepts evaluation request data containing IDs for existing prompt, model response,
-    and ideal response. Triggers the evaluation workflow asynchronously in the background.
-    Returns a message indicating the evaluation has been queued.
+    Accept evaluation request data and trigger the workflow asynchronously.
+
+    Accepts IDs for prompt, model response, and ideal response. Retrieves the actual
+    data (currently using placeholders - TODO) and queues the core evaluation
+    workflow using background tasks.
+
+    Args:
+        request: The evaluation request data containing necessary IDs.
+        background_tasks: FastAPI background tasks manager.
+
+    Returns:
+        An EvaluationResponse indicating the task has been queued.
+
+    Raises:
+        HTTPException: If configuration fails to load or an internal error occurs.
     """
     print(
         f"Received evaluation request for prompt_id: {request.prompt_id}, response_id: {request.model_response_id}"
@@ -176,10 +192,22 @@ async def submit_evaluation(
     tags=["Evaluation"],
     dependencies=[Depends(get_api_key)],  # Apply security dependency
 )
-async def get_evaluation_result(evaluation_id: str):
+async def get_evaluation_result(evaluation_id: str) -> EvaluationResultData:
     """
-    Retrieves the results of a specific evaluation run by its ID.
-    Assumes the evaluation has been processed offline and saved to evaluations.json.
+    Retrieve the results of a specific evaluation by its ID.
+
+    Loads the evaluation results file (path defined in config) and searches
+    for the entry matching the provided evaluation_id.
+
+    Args:
+        evaluation_id: The unique ID of the evaluation to retrieve.
+
+    Returns:
+        The EvaluationResultData for the specified ID.
+
+    Raises:
+        HTTPException: If the configuration fails, the results file is not found,
+                       the ID is not found, or an error occurs during reading.
     """
     print(f"Received request for evaluation_id: {evaluation_id}")
 
@@ -203,7 +231,7 @@ async def get_evaluation_result(evaluation_id: str):
         logger.warning(
             "Evaluations result file not found at resolved path: %s", results_file_path
         )
-        raise HTTPException(status_code=404, detail=f"Evaluations data file not found.")
+        raise HTTPException(status_code=404, detail="Evaluations data file not found.")
 
     # Read JSONL file line by line
     try:

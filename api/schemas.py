@@ -1,5 +1,11 @@
-# CogniBench - API Schemas (Pydantic Models)
-# Version: 0.1 (Phase 3)
+"""
+CogniBench API Schemas (Pydantic Models).
+
+Defines the data structures used for request validation, response serialization,
+and representing evaluation results within the API layer.
+
+Version: 0.1.1 (Phase 3 - Cleanup Pass)
+"""
 
 from typing import Any, Dict, Optional
 
