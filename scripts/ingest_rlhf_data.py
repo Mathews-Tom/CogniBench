@@ -24,7 +24,7 @@ except ImportError:
 
 
 # Get logger for this module
-logger = logging.getLogger('backend')
+logger = logging.getLogger("backend")
 
 
 def robust_latex_conversion(text):

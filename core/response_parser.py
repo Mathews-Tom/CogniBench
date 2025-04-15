@@ -17,7 +17,7 @@ import re
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 # Setup logger for this module
-logger = logging.getLogger('backend')
+logger = logging.getLogger("backend")
 
 # --- Module Constants ---
 # Note: The default constants EXPECTED_CRITERIA_FULL_L1 and ALLOWED_SCORES
@@ -61,11 +61,11 @@ def _normalize_key(key: str) -> str:
 
 def _find_json_block(text: str) -> Optional[str]:
     """
-    Attempts to extract a JSON object string from a larger text block.
+    Extracts a JSON object string from a text block, handling common LLM outputs.
 
-    Handles JSON enclosed in markdown code fences (e.g., ```json ... ``` or ``` ... ```)
-    as often produced by LLMs. Also includes fallbacks for finding the outermost
-    curly braces or checking if the entire stripped text is a JSON object.
+    Prioritizes JSON within markdown code fences (```json ... ``` or ``` ... ```).
+    Falls back to finding the outermost curly braces `{...}`.
+    Finally, checks if the entire stripped text is a JSON object.
 
     Args:
         text: The raw text potentially containing a JSON block.
@@ -73,215 +73,224 @@ def _find_json_block(text: str) -> Optional[str]:
     Returns:
         The extracted JSON string if found, otherwise None.
     """
-    # Regex to find JSON possibly enclosed in ```json ... ``` or ``` ... ```
     if not isinstance(text, str) or not text.strip():
         logger.debug("Cannot find JSON block in empty or non-string input.")
         return None
 
-    # 1. Try finding JSON within markdown code fences (common LLM output format)
-    #    Handles ```json { ... } ``` or ``` { ... } ```
-    #    Uses non-greedy matching for the content {.*?}
-    fence_match = re.search(
-        r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL | re.IGNORECASE
-    )
+    # Pattern explanation:
+    # ```      - Matches the opening fence
+    # (?:json)? - Optionally matches 'json' (non-capturing group)
+    # \s*      - Matches optional whitespace after 'json' or ```
+    # (\{.*?\}) - Captures the JSON block (non-greedy match for content within {})
+    # \s*      - Matches optional whitespace before the closing fence
+    # ```      - Matches the closing fence
+    # re.DOTALL allows '.' to match newlines. re.IGNORECASE handles 'json' casing.
+    fence_pattern = r"```(?:json)?\s*(\{.*?\})\s*```"
+    fence_match = re.search(fence_pattern, text, re.DOTALL | re.IGNORECASE)
     if fence_match:
         logger.debug("Found JSON block using markdown fence regex.")
-        return fence_match.group(1).strip()
+        return fence_match.group(1).strip()  # Return the captured JSON part
 
-    # 2. Fallback: Find the first '{' and the last '}' in the text.
-    #    This is less robust but can work if the JSON is the main content.
-    json_start_index = text.find("{")
-    json_end_index = text.rfind("}")
-    if json_start_index != -1 and json_end_index > json_start_index:
-        potential_json = text[json_start_index : json_end_index + 1]
-        # Basic sanity check: does it look like JSON? (Starts/ends with braces)
-        if potential_json.strip().startswith("{") and potential_json.strip().endswith(
-            "}"
-        ):
-            logger.debug(
-                "Found potential JSON block using first '{' and last '}' fallback."
-            )
-            return potential_json.strip()
+    # Fallback 1: Find the first '{' and the last '}'
+    # This is less reliable but catches cases without fences if JSON is the main part.
+    first_brace = text.find("{")
+    last_brace = text.rfind("}")
+    if first_brace != -1 and last_brace > first_brace:
+        potential_json = text[first_brace : last_brace + 1].strip()
+        # Basic check: Does it still look like a JSON object after stripping?
+        if potential_json.startswith("{") and potential_json.endswith("}"):
+            # Attempt a quick validation to avoid returning non-JSON brace pairs
+            try:
+                json.loads(potential_json)  # Try parsing
+                logger.debug(
+                    "Found potential JSON block using first/last brace fallback and basic validation."
+                )
+                return potential_json
+            except json.JSONDecodeError:
+                logger.debug("First/last brace content was not valid JSON.")
+                # Continue to next fallback if this wasn't valid JSON
 
-    # 3. Fallback: Check if the entire stripped text is a JSON object.
+    # Fallback 2: Check if the entire stripped text is a JSON object
     stripped_text = text.strip()
     if stripped_text.startswith("{") and stripped_text.endswith("}"):
-        logger.debug("Assuming the entire stripped text is the JSON block.")
-        return stripped_text
+        try:
+            json.loads(stripped_text)  # Validate it's actual JSON
+            logger.debug(
+                "Assuming the entire stripped text is the JSON block after validation."
+            )
+            return stripped_text
+        except json.JSONDecodeError:
+            logger.debug("Entire stripped text was not valid JSON.")
 
-    logger.warning("Could not reliably find a JSON block in the provided text.")
+    logger.warning(
+        "Could not reliably find and validate a JSON block in the provided text."
+    )
     return None
 
 
-def parse_judge_response(
-    raw_response_content: str,
-    expected_criteria: List[str],
-    allowed_scores: List[str],
-) -> ParsedResponse:
-    """Parses and validates the raw text response from a Judge LLM.
-
-    This function attempts to extract a JSON block from the raw_response_content,
-    parse it, and then validate its structure and content based on the provided
-    expected_criteria and allowed_scores.
-
-    Steps:
-        1. Extracts a potential JSON string using _find_json_block.
-        2. Attempts to parse the extracted string into a Python dictionary using json.loads.
-        3. Validates the presence of a top-level 'evaluation' key containing a dictionary.
-        4. Normalizes keys for comparison (both from the input and expected criteria).
-        5. Checks if all expected_criteria are present within the 'evaluation' dictionary.
-        6. For each present and expected criterion, validates:
-            - It contains 'score' and 'justification' keys (case-insensitive check).
-            - The 'score' value is one of the allowed_scores (case-insensitive check).
-        7. Reports *all* validation errors encountered (missing criteria,
-            structural errors like missing keys or wrong types, invalid score values)
-            combined into a single error message.
+def _parse_json_string(
+    json_string: str,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """
+    Attempts to parse a JSON string, with a fallback to json5 for tolerant parsing.
 
     Args:
-        raw_response_content: The raw string output received from the judge LLM.
-        expected_criteria: A list of criterion names (strings) that are expected
-            to be present as keys within the 'evaluation' dictionary. Case is
-            preserved for error messages, but matching is case-insensitive.
-        allowed_scores: A list of score values (strings) that are considered valid
-            for the 'score' field within each criterion. Matching is case-insensitive.
+        json_string: The string suspected to contain JSON data.
 
     Returns:
-        A dictionary representing the parsing outcome:
-        - On success: Returns the original parsed dictionary, potentially with
-            additional keys if the LLM provided them, but guarantees the presence
-            and basic validation of the 'evaluation' structure according to the
-            expected criteria. Example:
-            {'evaluation': {'Problem Understanding': {'score': 'Yes', ...}, ...}, 'overall_comment': '...'}
-        - On failure: Returns a dictionary containing a single 'error' key with a
-            string describing the reason(s) for failure. Example:
-            {'error': "Validation Failed: Missing expected criteria: ['Assumptions']; Invalid score value 'Maybe' for criterion 'Problem Understanding'. Allowed: ['Yes', 'No', 'Partial']"}
+        A tuple:
+        - Parsed data as a dictionary if successful, otherwise None.
+        - An error message string if parsing failed, otherwise None.
     """
-    logger.debug("Attempting to parse judge response content.")
-    json_string: Optional[str] = _find_json_block(raw_response_content)
-
-    if not json_string:
-        logger.warning("Parser: Could not find JSON block in the raw response.")
-        return {"error": "Could not find JSON block in the response."}
-
     try:
-        # Attempt to parse the extracted JSON string
-        parsed_data: Any = json.loads(json_string)
-        logger.debug("Successfully parsed JSON block.")
-    except json.JSONDecodeError as e:
+        parsed_data = json.loads(json_string)
+        logger.debug("Successfully parsed JSON block using standard json library.")
+        return parsed_data, None
+    except json.JSONDecodeError as e_std:
         logger.warning(
-            "Standard JSON parsing failed, attempting tolerant parsing with json5: %s",
-            e,
+            "Standard JSON parsing failed (%s), attempting tolerant parsing with json5.",
+            e_std,
         )
         try:
-            import json5
+            import json5  # Import only when needed
 
             parsed_data = json5.loads(json_string)
-            logger.debug("Successfully parsed JSON block using json5.")
-        except Exception as json5_e:
-            error_msg = f"Invalid JSON format even with tolerant parsing: {json5_e}"
+            logger.info("Successfully parsed JSON block using json5 library.")
+            return parsed_data, None
+        except ImportError:
+            error_msg = "Standard JSON parsing failed, and json5 library is not installed. Cannot perform tolerant parsing."
             logger.error(error_msg)
-            return {"error": error_msg}
-    except Exception as e:  # Catch other unexpected errors during parsing
-        error_msg = f"Unexpected error during JSON parsing: {e}"
-        logger.error(error_msg, exc_info=True)
-        return {"error": error_msg}
-
-    # --- Initial Structure Validation ---
-    logger.debug("Validating basic JSON structure...")
-    if not isinstance(parsed_data, dict):
-        msg = "Parsed JSON is not a dictionary (object)."
-        logger.warning(msg)
-        return {"error": msg}
-
-    # Check for the mandatory 'evaluation' top-level key (case-sensitive for now)
-    if "evaluation" not in parsed_data:
-        # TODO: Consider allowing case-insensitive check for 'evaluation' key?
-        msg = "Parsed JSON is missing the required top-level key: 'evaluation'."
-        logger.warning(msg)
-        return {"error": msg}
-
-    evaluation_content: Any = parsed_data["evaluation"]
-    if not isinstance(evaluation_content, dict):
-        msg = "The value associated with the 'evaluation' key is not a dictionary (object)."
-        logger.warning(msg)
-        return {"error": msg}
-
-    # --- Detailed Validation of 'evaluation' Content ---
-    logger.debug("Validating content within the 'evaluation' object...")
-
-    # Create a map from normalized input keys to (original_key, original_value)
-    # This handles case/format variations in the LLM's output keys.
-    normalized_input_map: Dict[str, Tuple[str, Any]] = {}
-    for k, v in evaluation_content.items():
-        if isinstance(k, str):  # Ensure keys are strings before normalizing
-            normalized_input_map[_normalize_key(k)] = (k, v)
-        else:
-            logger.warning(
-                "Non-string key found in evaluation content: %s. Skipping.", k
+            return None, error_msg
+        except Exception as e_json5:
+            error_msg = (
+                f"Invalid JSON format even with tolerant json5 parsing: {e_json5}"
             )
+            logger.error(error_msg)
+            return None, error_msg
+    except Exception as e_other:
+        error_msg = f"Unexpected error during JSON parsing: {e_other}"
+        logger.error(error_msg, exc_info=True)
+        return None, error_msg
 
-    # Prepare normalized sets/lists for efficient lookup
-    normalized_expected_criteria_set: Set[str] = {
-        _normalize_key(c) for c in expected_criteria
-    }
-    normalized_allowed_scores_list: List[str] = [str(s).lower() for s in allowed_scores]
 
-    # This will store the validated criteria, preserving original keys
+def _validate_initial_structure(parsed_data: Any) -> Optional[str]:
+    """
+    Performs basic structural validation on the parsed JSON data.
+
+    Checks if the data is a dictionary and contains the top-level 'evaluation' key,
+    whose value must also be a dictionary.
+
+    Args:
+        parsed_data: The data parsed from the JSON string.
+
+    Returns:
+        An error message string if validation fails, otherwise None.
+    """
+    if not isinstance(parsed_data, dict):
+        return "Parsed JSON is not a dictionary (object)."
+
+    # Check for the mandatory 'evaluation' top-level key (case-sensitive)
+    # Consider case-insensitive if needed: `evaluation_key = next((k for k in parsed_data if k.lower() == 'evaluation'), None)`
+    if "evaluation" not in parsed_data:
+        return "Parsed JSON is missing the required top-level key: 'evaluation'."
+
+    evaluation_content = parsed_data["evaluation"]
+    if not isinstance(evaluation_content, dict):
+        return "The value associated with the 'evaluation' key is not a dictionary (object)."
+
+    return None  # Structure is valid
+
+
+def _validate_evaluation_criteria(
+    evaluation_content: Dict[str, Any],
+    expected_criteria: List[str],
+    allowed_scores: List[str],
+) -> Tuple[EvaluationDict, List[str]]:
+    """
+    Validates the content of the 'evaluation' dictionary against expected criteria and scores.
+
+    Checks for presence of all expected criteria, validates the structure within each
+    (presence of 'score' and 'justification'), and validates the score value.
+    Uses case-insensitive matching for criteria names and score values.
+
+    Args:
+        evaluation_content: The dictionary found under the 'evaluation' key.
+        expected_criteria: List of expected criterion names (case-insensitive match).
+        allowed_scores: List of valid score values (case-insensitive match).
+
+    Returns:
+        A tuple containing:
+        - validated_evaluation_output (EvaluationDict): A dictionary containing only the
+          validated criteria, preserving original key casing from the input.
+        - all_errors (List[str]): A list of all validation error messages found.
+    """
     validated_evaluation_output: EvaluationDict = {}
-
-    # Lists to collect validation errors
     missing_criteria_errors: List[str] = []
     structural_errors_list: List[str] = []
 
-    # Iterate through the *expected* criteria to ensure they are present
+    # Prepare for case-insensitive lookups
+    normalized_input_map: Dict[str, Tuple[str, Any]] = {
+        _normalize_key(k): (k, v)
+        for k, v in evaluation_content.items()
+        if isinstance(k, str)
+    }
+    if len(normalized_input_map) != len(evaluation_content):
+        logger.warning(
+            "Non-string keys found in evaluation content were ignored during validation."
+        )
+
+    normalized_expected_criteria_set: Set[str] = {
+        _normalize_key(c) for c in expected_criteria
+    }
+    normalized_allowed_scores_set: Set[str] = {str(s).lower() for s in allowed_scores}
+
+    # --- Iterate through EXPECTED criteria ---
     for norm_expected_criterion in normalized_expected_criteria_set:
-        # Find the original casing of the expected criterion for error messages
-        original_expected_criterion_name: str = next(
+        # Find original expected name for error messages
+        original_expected_criterion_name = next(
             (
                 c
                 for c in expected_criteria
                 if _normalize_key(c) == norm_expected_criterion
             ),
-            norm_expected_criterion,  # Fallback to normalized if not found (shouldn't happen)
+            norm_expected_criterion,  # Fallback
         )
-        current_criterion_errors: List[str] = []  # Errors specific to this criterion
+        current_criterion_errors: List[str] = []
 
-        # --- 1. Check Presence ---
+        # 1. Check Presence (using normalized map)
         if norm_expected_criterion not in normalized_input_map:
             missing_criteria_errors.append(f"'{original_expected_criterion_name}'")
             continue  # Skip further checks for this missing criterion
 
-        # --- 2. Check Structure if Present ---
         original_key, criterion_value = normalized_input_map[norm_expected_criterion]
 
+        # 2. Check Structure (must be a dictionary)
         if not isinstance(criterion_value, dict):
             current_criterion_errors.append(
-                f"Value for criterion '{original_key}' is not a dictionary (object)."
+                f"Value for criterion '{original_key}' is not a dictionary (found type: {type(criterion_value).__name__})."
             )
-            # Add errors for this criterion to the main list and skip further checks for it
             structural_errors_list.extend(current_criterion_errors)
-            continue
+            continue  # Skip further checks for this malformed criterion
 
-        # --- 3. Check for 'score' and 'justification' keys (case-insensitive) ---
-        criterion_data_dict: Dict[str, Any] = criterion_value  # Now known to be a dict
+        # 3. Check for 'score' and 'justification' keys (case-insensitive)
+        criterion_data_dict: Dict[str, Any] = criterion_value
         score_value: Optional[Any] = None
-        justification_value: Optional[Any] = None
+        justification_value: Optional[Any] = None  # Keep justification as Any for now
         score_original_key: Optional[str] = None
         justification_original_key: Optional[str] = None
 
-        # Find score/justification keys case-insensitively
+        # Find keys case-insensitively
         for key, value in criterion_data_dict.items():
-            if not isinstance(key, str):
-                continue  # Skip non-string keys
-            norm_inner_key = key.lower()
-            if norm_inner_key == "score":
-                score_value = value
-                score_original_key = key
-            elif norm_inner_key == "justification":
-                justification_value = value
-                justification_original_key = key
+            if isinstance(key, str):
+                norm_inner_key = key.lower()
+                if norm_inner_key == "score":
+                    score_value = value
+                    score_original_key = key
+                elif norm_inner_key == "justification":
+                    justification_value = value
+                    justification_original_key = key
 
-        # Check if mandatory keys were found
+        # Report missing mandatory keys
         if score_original_key is None:
             current_criterion_errors.append(
                 f"Missing 'score' key within criterion '{original_key}'."
@@ -291,23 +300,20 @@ def parse_judge_response(
                 f"Missing 'justification' key within criterion '{original_key}'."
             )
 
-        # --- 4. Validate Score Value (if score key was found) ---
+        # 4. Validate Score Value (if score key was found)
         if score_original_key is not None:
             if not isinstance(score_value, str):
                 current_criterion_errors.append(
                     f"'score' value for criterion '{original_key}' is not a string (found type: {type(score_value).__name__})."
                 )
-            # Check against allowed scores (case-insensitive)
-            elif score_value.lower() not in normalized_allowed_scores_list:
+            elif str(score_value).lower() not in normalized_allowed_scores_set:
                 current_criterion_errors.append(
                     f"Invalid score value '{score_value}' for criterion '{original_key}'. Allowed (case-insensitive): {allowed_scores}"
                 )
-        # Note: Justification value type is not strictly validated here, treated as string.
 
-        # --- Store results or errors for this criterion ---
+        # --- Store results or errors ---
         if not current_criterion_errors:
-            # If valid, store the criterion data (preserving original keys)
-            # Ensure score/justification keys exist before accessing
+            # If valid, store the criterion data, preserving original keys
             validated_criterion_data: CriterionEvaluation = {}
             if score_original_key:
                 validated_criterion_data[score_original_key] = score_value
@@ -316,39 +322,92 @@ def parse_judge_response(
                     justification_value
                 )
 
-            # Include any other keys the LLM might have provided under this criterion
+            # Include any other keys the LLM might have provided
             for key, value in criterion_data_dict.items():
                 if key != score_original_key and key != justification_original_key:
                     validated_criterion_data[key] = value
 
             validated_evaluation_output[original_key] = validated_criterion_data
         else:
-            # If errors found for this criterion, add them to the main structural error list
             structural_errors_list.extend(current_criterion_errors)
 
-    # --- Final Error Reporting ---
-    # Combine all collected errors
+    # --- Combine Errors ---
     all_errors = []
     if missing_criteria_errors:
         all_errors.append(
-            f"Missing expected criteria: {', '.join(missing_criteria_errors)}"
+            f"Missing expected criteria: {', '.join(sorted(missing_criteria_errors))}"
         )
     if structural_errors_list:
-        # Combine all structural/value errors found for individual criteria
         all_errors.extend(structural_errors_list)
 
-    if all_errors:
-        # Format a single error message containing all issues
-        combined_error_msg = "Validation Failed: " + "; ".join(all_errors) + "."
+    return validated_evaluation_output, all_errors
+
+
+def parse_judge_response(
+    raw_response_content: str,
+    expected_criteria: List[str],
+    allowed_scores: List[str],
+) -> ParsedResponse:
+    """
+    Parses and validates the raw text response from a Judge LLM.
+
+    Extracts JSON, parses it (with json5 fallback), validates the basic structure
+    (must be dict with 'evaluation' key), and validates the content of the
+    'evaluation' dictionary against expected criteria and allowed scores.
+
+    Args:
+        raw_response_content: Raw string output from the judge LLM.
+        expected_criteria: List of criterion names expected within 'evaluation' (case-insensitive match).
+        allowed_scores: List of valid score values for each criterion (case-insensitive match).
+
+    Returns:
+        A dictionary representing the parsing outcome:
+        - On success: The original parsed dictionary, with the 'evaluation' key's value
+          replaced by a validated version containing only the expected criteria
+          that passed validation (preserving original key casing). Example:
+          {'evaluation': {'Problem Understanding': {'score': 'Yes', ...}, ...}, 'overall_comment': '...'}
+        - On failure: A dictionary {'error': message} describing the failure reason(s).
+    """
+    logger.debug("Attempting to parse judge response content.")
+
+    # 1. Extract JSON block
+    json_string = _find_json_block(raw_response_content)
+    if not json_string:
+        logger.warning("Parser: Could not find JSON block in the raw response.")
+        return {"error": "Could not find JSON block in the response."}
+
+    # 2. Parse JSON string (with json5 fallback)
+    parsed_data, error_msg = _parse_json_string(json_string)
+    if error_msg:
+        return {"error": error_msg}  # Return parsing error
+
+    # 3. Validate Initial Structure
+    error_msg = _validate_initial_structure(parsed_data)
+    if error_msg:
+        logger.warning("Parser: Initial structure validation failed: %s", error_msg)
+        return {"error": error_msg}
+
+    # We now know parsed_data is a dict and has parsed_data['evaluation'] as a dict
+    evaluation_content = parsed_data["evaluation"]
+
+    # 4. Validate Evaluation Criteria Content
+    logger.debug("Validating content within the 'evaluation' object...")
+    validated_evaluation, validation_errors = _validate_evaluation_criteria(
+        evaluation_content, expected_criteria, allowed_scores
+    )
+
+    if validation_errors:
+        combined_error_msg = "Validation Failed: " + "; ".join(validation_errors) + "."
         logger.warning("Parser validation failed: %s", combined_error_msg)
         return {"error": combined_error_msg}
 
-    # --- Success ---
-    # If no errors were found, replace the original evaluation content with the
-    # validated structure (which preserves original keys but ensures required ones are present).
-    parsed_data["evaluation"] = validated_evaluation_output
-    logger.debug("Parser validation successful.")
-    return parsed_data  # Return the full original parsed structure with validated 'evaluation'
+    # 5. Success: Replace original evaluation with validated content
+    #    This ensures only expected and valid criteria are passed downstream.
+    parsed_data["evaluation"] = validated_evaluation
+    logger.info(
+        "Parser validation successful."
+    )  # Changed level to INFO for successful parse
+    return parsed_data  # Return the full original structure but with validated 'evaluation'
 
 
 # --- Example Usage & Basic Tests ---

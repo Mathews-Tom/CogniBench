@@ -8,6 +8,7 @@ from pathlib import Path
 # Assuming the script is in CogniBench/core, parent.parent gives CogniBench/
 BASE_LOG_DIR = Path(__file__).parent.parent / "logs"
 
+
 def setup_logging(log_level=logging.INFO):
     """Configures project-wide logging."""
     # Create the base log directory if it doesn't exist
@@ -16,7 +17,7 @@ def setup_logging(log_level=logging.INFO):
     # Generate timestamp once for the directory name
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     timestamp_log_dir = BASE_LOG_DIR / timestamp
-    timestamp_log_dir.mkdir(parents=True, exist_ok=True) # Create timestamped subdir
+    timestamp_log_dir.mkdir(parents=True, exist_ok=True)  # Create timestamped subdir
 
     # Define specific log file paths
     backend_log_path = timestamp_log_dir / "backend.log"

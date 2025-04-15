@@ -6,7 +6,7 @@ from CogniBench.core.llm_clients.openai_client import OpenAIClient
 from CogniBench.core.prompt_templates import load_prompt_template
 
 # setup_logging() should be called by the entry point (e.g., run_batch_evaluation)
-logger = logging.getLogger('backend')
+logger = logging.getLogger("backend")
 
 STRUCTURING_PROMPT_PATH = "prompts/structuring/Math-L1-structuring-v1.0.txt"
 STRUCTURED_OUTPUT_DIR = "data/structured_responses"
