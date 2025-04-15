@@ -29,11 +29,11 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 import yaml
+from cognibench_agent.constants import AVAILABLE_MODELS, COLOR_MAP
 from core.config import AppConfig
 from core.evaluation_runner import run_batch_evaluation_core
 from core.llm_clients.openai_client import clear_openai_cache
 from core.log_setup import setup_logging
-from cognibench_agent.constants import AVAILABLE_MODELS, COLOR_MAP
 
 # --- Constants ---
 BASE_CONFIG_PATH = COGNIBENCH_ROOT / "config.yaml"
@@ -128,7 +128,6 @@ def initialize_session_state():
     if "judging_model_select" not in st.session_state:
         st.session_state["judging_model_select"] = "GPT-4.1"
         logger.info("Initialized judging_model_select to GPT-4.1")
-
 
     # Special handling for temp dir
     if st.session_state.temp_dir is None:
@@ -427,7 +426,7 @@ def generate_run_config() -> Optional[AppConfig]:
                     "api_key": struct_api_key,
                 },
                 "prompt_template_path": struct_template_path,
-                "structuring_model": struct_model_id, # Also set the older key
+                "structuring_model": struct_model_id,  # Also set the older key
             },
             "evaluation_settings": {
                 "llm_client": {
@@ -436,7 +435,7 @@ def generate_run_config() -> Optional[AppConfig]:
                     "api_key": judge_api_key,
                 },
                 "prompt_template_path": judge_template_path,
-                "judge_model": judge_model_id, # Also set the older key
+                "judge_model": judge_model_id,  # Also set the older key
             },
             # Output options using the persistent directory
             "output_options": {
