@@ -38,7 +38,18 @@ Evaluating LLMs on complex reasoning tasks, especially in specialized fields lik
 * **Combined Results:** Generates a final JSON file (`_final_results.json`) grouping results by task for easier comparison across models. This file now includes the raw `model_response` text alongside structured and judged evaluations.
 * **Configurable Logging:** Timestamped log files and configurable console output levels. Includes detailed logs for structuring and judging LLM calls within the core workflow. Logs are now stored in timestamped directories (e.g., `logs/YYYYMMDD_HHMM/`) with separate files for backend (`backend.log`) and Streamlit (`streamlit.log`) operations.
 * **API Interface:** (Optional) Provides an API for programmatic interaction (loads config on startup).
-* **Streamlit UI:** A user-friendly interface (`streamlit_app/`) for uploading batch files, configuring the judge (provider, model, template, API key), viewing the configuration summary and files (selected prompt template, `config.yaml`) in expandable sections, running evaluations (with dynamic spinner, progress bar, live log output, and a "Stop Processing" button to gracefully interrupt evaluations), viewing persistent logs, and visualizing results (overall performance, rubric breakdown per criterion/model, human review status counts, and explorers for all tasks and those needing review). The UI now displays the "Total Evaluation Duration" in a human-readable format (e.g., "1 hr, 2 min, 3 s"). Additionally, introduced a global `COLOR_MAP` constant for consistent and clear graph coloring across the application.
+* **Streamlit UI:** A user-friendly interface (`streamlit_app/`) for:
+  * Uploading batch files.
+  * Configuring Structuring and Judging models (provider, model, template, API key).
+  * Viewing configuration summaries and source files (prompts, `config.yaml`).
+  * Running evaluations via direct integration with the core logic (`core.evaluation_runner`) in a background thread (improving responsiveness and replacing previous `subprocess` calls).
+  * Monitoring progress with live, detailed log output captured from core modules within a collapsible expander.
+  * Gracefully stopping ongoing evaluations.
+  * Visualizing results with enhanced, interactive charts (clustered bars, model/criteria filters).
+  * Exploring detailed results and drilling down into specific task/model evaluations.
+  * Loading results from previous runs stored persistently.
+  * Clearing LLM and results loading caches.
+  * **Output:** Saves results persistently to `CogniBench/data/<BatchFileName>_YYYYMMDD_HHMM/`.
 
 ## Project Structure
 
@@ -105,6 +116,24 @@ CogniBench/
     * Configuration loading requires `PyYAML`: `uv pip install pyyaml`
 
 ## Usage
+
+**Using the Streamlit UI:**
+
+Provides a graphical interface for running evaluations.
+
+```bash
+streamlit run streamlit_app/app.py
+```
+
+1.  Launch the app using the command above from the `CogniBench` root directory.
+2.  Upload one or more raw batch JSON files (e.g., from `Task_JSONs/`).
+3.  Configure the Structuring and Judging models, API keys (optional), and prompt templates.
+4.  Click "Run Evaluation". Progress and detailed logs will appear in the "Run Output / Log" expander.
+5.  Results (plots, tables) will appear upon completion. Intermediate and final files are saved persistently to `CogniBench/data/<BatchFileName>_YYYYMMDD_HHMM/`.
+6.  Use "Load Existing Results" to select and view results from previous runs saved in the `data` directory.
+7.  Use "Clear Caches (Results & LLM)" to clear LLM API call caches and Streamlit's data loading cache if needed.
+
+**Running Evaluations via Scripts:**
 
 **Running a Single Evaluation (on pre-ingested data):**
 
