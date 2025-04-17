@@ -1,95 +1,136 @@
 ## Frontend/Agent Design
 
-The `CogniBench/cognibench_agent/` directory houses the primary user-facing component of the CogniBench project: a web application built using the Streamlit framework.
+The `CogniBench/cognibench_agent/` directory houses the primary user-facing component of the CogniBench project: a web application built using the Streamlit framework (`app.py`).
 
 **Key Components & Functionality:**
 
-* **Streamlit Application (`app.py`):** This is the core of the frontend. It provides a web-based graphical user interface (GUI) for interacting with the CogniBench evaluation pipeline.
+* **Streamlit Application (`app.py`):** This is the core of the frontend. It provides a web-based graphical user interface (GUI) organized into two main tabs: "Run Evaluation" and "View Results".
 * **User Interaction:** Users interact with the application through their web browser. The interface allows them to:
-* Upload raw evaluation task data (JSON files).
-* Configure the evaluation run, including selecting structuring and judging models (e.g., different OpenAI models), providing optional API keys, and choosing specific prompt templates (`.txt` files) from the `CogniBench/prompts/` subdirectories.
-* Initiate the evaluation process.
-* View the progress and logs of the running evaluation in real-time.
-* Explore and analyze the results of completed evaluations, including aggregated statistics, performance charts (using Plotly), detailed rubric scores, and filterable data tables (using Pandas).
-* **Configuration (`constants.py`, interaction with `core.config`):** While `constants.py` exists, the application primarily relies on constants and configuration handling imported from the `CogniBench/core/` package (`core.constants`, `core.config`). It uses these to populate UI elements like model selection dropdowns and to generate the final configuration (`AppConfig`) passed to the evaluation runner.
+  * **Run Evaluation Tab:**
+    * Upload raw evaluation task data (JSON files conforming to the ingested format).
+    * Configure the evaluation run: select structuring and judging models (e.g., different OpenAI models), provide optional API keys, and choose specific prompt templates (`.txt` files) from the `CogniBench/prompts/` subdirectories.
+    * Initiate the evaluation process, which runs in a background thread.
+    * View the progress and filtered logs (excluding DEBUG level) of the running evaluation in real-time.
+    * See the elapsed time for the current run.
+    * Stop an ongoing evaluation.
+  * **View Results Tab:**
+    * Select one or more completed evaluation run folders (from `CogniBench/data/`) to load results from. The selector defaults to the most recently completed run if available.
+    * Explore and analyze the results of the selected evaluations:
+      * View aggregated summary statistics (including original file summary if available).
+      * Examine performance charts (grouped bar charts using Plotly for overall pass/fail rates and per-model performance).
+      * Analyze detailed rubric score distributions (grouped bar charts per criterion and per-model). Rubric scores ("Pass", "Partial", "Fail") are color-coded for clarity.
+      * Browse a filterable data table (using Pandas) containing detailed results for each task.
+      * Drill down into specific task/model combinations using select boxes for `Task ID` and `Model ID` to view detailed input, output, and judging information.
+      * View tasks flagged for human review.
+* **Configuration (`constants.py`, interaction with `core.config`):** The application relies heavily on constants and configuration handling imported from the `CogniBench/core/` package (`core.constants`, `core.config`). It uses these to populate UI elements like model selection dropdowns and to generate the final configuration (`AppConfig`) passed to the evaluation runner. `cognibench_agent/constants.py` is minimal.
 
 **Technology Stack:**
 
 * **UI Framework:** Streamlit (`streamlit`)
 * **Data Handling:** Pandas (`pandas`)
 * **Visualization:** Plotly (`plotly`)
-* **Configuration Parsing (likely indirect):** PyYAML (`pyyaml`) - Used by the core configuration handling.
+* **Configuration Parsing (indirect):** PyYAML (`pyyaml`) - Used by the core configuration handling.
 
 **Backend Connection:**
 
 * This Streamlit application does **not** interact with the separate FastAPI defined in `CogniBench/api/main.py`.
 * Instead, it functions as a direct frontend to the core evaluation logic. It imports necessary modules and functions directly from the `CogniBench/core/` package (e.g., `run_batch_evaluation_core` from `evaluation_runner.py`, `AppConfig` from `config.py`, various constants).
 
+**State Management (`st.session_state`):**
+
+The application heavily utilizes `st.session_state` to maintain UI state across reruns and manage the evaluation lifecycle. Key variables include:
+
+* `uploaded_files_info`: Information about user-uploaded JSON files.
+* `structuring_*_select`, `judging_*_select`: User selections for models and templates.
+* `config_complete`: Boolean flag indicating if all necessary configurations are set.
+* `evaluation_running`: Boolean flag indicating if an evaluation is in progress.
+* `eval_start_time`, `eval_duration_str`: Timing information for the run.
+* `worker_thread`, `output_queue`, `stop_event`: Objects for managing the background evaluation thread and communication.
+* `last_run_output`: Stores log messages from the evaluation worker.
+* `evaluation_results_paths`: Paths to the `_final_results.json` files generated by runs.
+* `newly_completed_run_folder`: Stores the path of the most recently finished run's output folder, used to pre-select it in the "View Results" tab.
+* `selected_results_folders`: List of folder paths selected by the user in the "View Results" tab.
+* `results_df`, `aggregated_summary`, `original_file_summary`: Processed data loaded from selected results files.
+* `view_selected_task_id`, `view_selected_model_id`: State for the drill-down selection in the results table.
+
 **Key Function Contracts (`app.py`):**
 
 * **`initialize_session_state()`:**
-* **Purpose:** Sets up default values for Streamlit's session state (`st.session_state`) if they don't already exist. This includes initializing UI selections (models, templates), flags for UI visibility, tracking uploaded files, evaluation status, results data, and threading objects for background processing.
-* **Inputs:** `st.session_state` (implicit).
-* **Outputs:** Populates `st.session_state` with default keys and values. Creates a temporary directory for uploaded files.
-* **`render_file_uploader()`:**
-* **Purpose:** Renders the `st.file_uploader` widget, allowing users to select one or more JSON files. Saves the uploaded files to a temporary directory managed by the session state.
-* **Inputs:** User interaction (file selection). Reads/writes `st.session_state.uploaded_files_info`, `st.session_state.temp_dir_path`.
-* **Outputs:** Renders the file uploader UI. Updates `st.session_state` with information about the uploaded files (name, temporary path). Triggers `st.rerun()` if files change.
-* **`render_config_ui()`:**
-* **Purpose:** Renders UI elements (select boxes, text inputs, buttons) for configuring structuring/judging models, API keys, and prompt templates. Uses constants from `core.constants` and helper functions like `get_templates` to populate options. Allows viewing prompt/config content.
-* **Inputs:** Reads `st.session_state` for current selections and visibility flags. Uses `AVAILABLE_MODELS`, `AVAILABLE_STRUCTURING_TEMPLATES`, `AVAILABLE_JUDGING_TEMPLATES`.
-* **Outputs:** Renders configuration expanders and widgets. Updates `st.session_state` based on user selections and button clicks (e.g., `structuring_model_select`, `show_structuring`). Sets `st.session_state.config_complete` flag.
+  * **Purpose:** Sets up default values for `st.session_state` if they don't already exist. Initializes UI selections (using defaults from `core.constants`), flags, evaluation status, results data, threading objects, and creates a temporary directory for uploads. Sets default structuring/judging models.
+  * **Inputs:** `st.session_state` (implicit).
+  * **Outputs:** Populates `st.session_state` with default keys and values.
+* **`render_file_uploader()` (in "Run Evaluation" tab):**
+  * **Purpose:** Renders the `st.file_uploader` widget. Saves uploaded files to the session's temporary directory. Updates state only if the set of uploaded files changes.
+  * **Inputs:** User interaction. Reads/writes `st.session_state.uploaded_files_info`, `st.session_state.temp_dir_path`, `st.session_state.last_uploaded_files_key`.
+  * **Outputs:** Renders the file uploader UI. Updates `st.session_state`. Triggers `st.rerun()` if files change.
+* **`render_config_ui()` (in "Run Evaluation" tab):**
+  * **Purpose:** Renders UI elements (select boxes, text inputs, buttons) within expanders for configuring structuring/judging models, API keys, and prompt templates. Uses constants from `core.constants` and `get_templates` helper. Allows viewing prompt/config content. Sets `st.session_state.config_complete`.
+  * **Inputs:** Reads `st.session_state` for current selections and visibility flags. Uses `AVAILABLE_MODELS`, `AVAILABLE_*_TEMPLATES`.
+  * **Outputs:** Renders configuration widgets. Updates `st.session_state` based on user selections.
+* **`render_config_summary()` (in "Run Evaluation" tab):**
+  * **Purpose:** Displays a concise summary of the currently selected models and prompt templates.
+  * **Inputs:** Reads relevant model/template selections from `st.session_state`.
+  * **Outputs:** Renders formatted markdown text summarizing the configuration.
 * **`generate_run_config() -> Optional[AppConfig]`:**
-* **Purpose:** Constructs the `AppConfig` object needed to run the core evaluation logic. It reads the base `config.yaml`, merges it with selections made in the UI (models, templates, API keys, input file paths), and generates a unique output directory path within `CogniBench/data/`.
-* **Inputs:** Reads `st.session_state` for UI selections and uploaded file paths. Reads `BASE_CONFIG_PATH` (`CogniBench/config.yaml`). Uses `AVAILABLE_MODELS`, `AVAILABLE_*_TEMPLATES`, `DATA_DIR`.
-* **Outputs:** Returns an `AppConfig` object if configuration is valid and files are uploaded, otherwise returns `None` and shows an error. Logs the generated output directory path.
+  * **Purpose:** Constructs the `AppConfig` object needed for the core evaluation. Reads `config.yaml`, merges UI selections (models, templates, API keys, input file paths), and generates a unique output directory path within `CogniBench/data/` based on input file stems and a timestamp.
+  * **Inputs:** Reads `st.session_state` for UI selections and uploaded file paths. Reads `BASE_CONFIG_PATH`. Uses `AVAILABLE_MODELS`, `AVAILABLE_*_TEMPLATES`, `DATA_DIR`.
+  * **Outputs:** Returns an `AppConfig` object if configuration is valid and files are uploaded, otherwise `None`. Logs the generated output directory path.
 * **`start_core_evaluation()`:**
-* **Purpose:** Initiates the backend evaluation process in a separate thread to avoid blocking the UI. It first calls `generate_run_config()` to get the configuration. If successful, it clears OpenAI cache, sets status flags in `st.session_state`, creates a `threading.Thread` targeting `evaluation_worker`, and starts the thread.
-* **Inputs:** Reads `st.session_state` (config completeness, uploaded files). Calls `generate_run_config()`.
-* **Outputs:** Updates `st.session_state` (e.g., `evaluation_running`, `eval_start_time`, `worker_thread`, `stop_event`). Starts the background evaluation thread. Renders status messages via `st.info`/`st.error`.
+  * **Purpose:** Initiates the backend evaluation in a separate thread. Calls `generate_run_config()`. If successful, clears OpenAI cache, sets status flags in `st.session_state`, creates and starts a `threading.Thread` targeting `evaluation_worker`.
+  * **Inputs:** Reads `st.session_state`. Calls `generate_run_config()`.
+  * **Outputs:** Updates `st.session_state` (running status, thread objects, etc.). Starts the background thread. Renders status messages.
 * **`evaluation_worker(...)`:**
-* **Purpose:** The function executed by the background thread. It calls the core `run_batch_evaluation_core` function with the generated `AppConfig`. It uses queues (`output_queue`, `log_queue`) to communicate status, logs, and results back to the main Streamlit thread. Handles exceptions during the core run.
-* **Inputs:** `app_config: AppConfig`, `output_queue: queue.Queue`, `log_queue: queue.Queue`, `stop_event: threading.Event`.
-* **Outputs:** Puts status messages, logs, and final result paths (`_final_results.json`) into the `output_queue`. Puts log records into the `log_queue`. Updates `st.session_state.evaluation_results_paths` (indirectly via queue).
-* **`render_evaluation_progress(...)`:**
-* **Purpose:** Displays the real-time progress and logs from the running evaluation. It checks the `output_queue` for messages from the `evaluation_worker` thread and displays them. Also shows elapsed time and provides a "Stop Evaluation" button.
-* **Inputs:** Reads `st.session_state` (running status, start time, output queue).
-* **Outputs:** Renders the run/stop buttons, progress area (`st.container`), log messages (`st.text_area`), and elapsed time. Calls `start_core_evaluation` or `stop_evaluation` on button clicks.
+  * **Purpose:** Function executed by the background thread. Calls `run_batch_evaluation_core`. Uses queues (`output_queue`) to communicate status, logs (filtered), and results back to the main thread. Handles exceptions. Sets `newly_completed_run_folder` on success.
+  * **Inputs:** `app_config: AppConfig`, `output_queue: queue.Queue`, `stop_event: threading.Event`.
+  * **Outputs:** Puts status messages, filtered logs, and final result paths into the `output_queue`. Updates `st.session_state.evaluation_results_paths` and `st.session_state.newly_completed_run_folder` (indirectly via queue).
+* **`render_evaluation_progress()` (in "Run Evaluation" tab):**
+  * **Purpose:** Displays real-time progress and filtered logs (INFO level and above) from the running evaluation. Checks the `output_queue`. Shows elapsed time and provides "Start/Stop Evaluation" buttons.
+  * **Inputs:** Reads `st.session_state` (running status, start time, output queue).
+  * **Outputs:** Renders run/stop buttons, progress area, log text area, and elapsed time. Calls `start_core_evaluation` or `stop_evaluation`.
+* **`stop_evaluation()`:**
+  * **Purpose:** Signals the background evaluation thread to stop using the `stop_event`.
+  * **Inputs:** Reads `st.session_state.stop_event`.
+  * **Outputs:** Sets the `stop_event`. Updates `st.session_state.evaluation_running`.
+* **`render_results_selector()` (in "View Results" tab):**
+  * **Purpose:** Renders a multiselect widget allowing users to choose one or more completed run folders from the `CogniBench/data/` directory. Defaults to the `newly_completed_run_folder` if set.
+  * **Inputs:** Reads `DATA_DIR`, `st.session_state.newly_completed_run_folder`.
+  * **Outputs:** Renders the multiselect widget. Updates `st.session_state.selected_results_folders`.
 * **`load_and_process_results(...)`:**
-* **Purpose:** Loads evaluation results from selected `_final_results.json` files (identified by their parent directory names). It concatenates data from multiple runs, processes it into a Pandas DataFrame, calculates aggregated summary statistics, and caches the results using `@st.cache_data`.
-* **Inputs:** `selected_folder_paths: List[str]` (paths to result directories selected by the user). Reads `_final_results.json` files within these paths.
-* **Outputs:** Returns a tuple: `(pd.DataFrame, Dict[str, Any])` containing the combined results DataFrame and the aggregated summary dictionary.
-* **`display_*` functions (`display_summary_stats`, `display_performance_plots`, `display_rubric_plots`, `display_results_table`, `display_human_review_tasks`):**
-* **Purpose:** These functions take the processed DataFrame and/or summary dictionary from `load_and_process_results` and render various visualizations and tables using Streamlit, Plotly, and Pandas. They include widgets for filtering and exploring the data.
-* **Inputs:** `df: pd.DataFrame`, `summary_data: Dict[str, Any]`. Read `st.session_state` for filter selections.
-* **Outputs:** Render Streamlit UI elements (headers, tables via `st.dataframe`, plots via `st.plotly_chart`, filters via `st.selectbox`/`st.radio`, etc.).
+  * **Purpose:** Loads results from selected `_final_results.json` files. Concatenates data, processes into a Pandas DataFrame, calculates aggregated summary statistics (including loading `_ingested*.json` for original summary), and caches results using `@st.cache_data`.
+  * **Inputs:** `selected_folder_paths: List[str]`. Reads `_final_results.json` and `_ingested*.json` files.
+  * **Outputs:** Returns a tuple: `(pd.DataFrame, Dict[str, Any], Optional[Dict[str, Any]])` containing the results DataFrame, aggregated summary, and optional original file summary.
+* **`format_score(score_value)`:**
+  * **Purpose:** Helper function to format performance/rubric scores ("Pass", "Partial", "Fail") with color codes for display.
+  * **Inputs:** Score string.
+  * **Outputs:** Formatted markdown string with color.
+* **`display_*` functions (`display_summary_stats`, `display_performance_plots`, `display_rubric_plots`, `display_results_table`, `display_human_review_tasks`) (in "View Results" tab):**
+  * **Purpose:** Take processed data (`df`, `summary_data`, `original_summary`) and render visualizations/tables using Streamlit, Plotly (grouped bar charts), and Pandas. Include widgets for filtering and drill-down (`st.selectbox` for task/model in `display_results_table`). Use `format_score` for color-coding.
+  * **Inputs:** `df: pd.DataFrame`, `summary_data: Dict[str, Any]`, `original_summary: Optional[Dict[str, Any]]`. Read `st.session_state` for filter/drill-down selections.
+  * **Outputs:** Render Streamlit UI elements (headers, tables, plots, filters, drill-down details).
 
 **Data Structures:**
 
 * **Input JSON Format:**
-* The application expects users to upload JSON files that conform to the *ingested* data format produced by scripts like `CogniBench/scripts/ingest_rlhf_data.py`. This format typically represents a list of evaluation tasks, where each task includes fields like `task_id`, `prompt`, `ideal_response`, and potentially metadata.
-* The Streamlit app itself does not perform deep validation of the JSON structure; it passes the file path(s) to the `run_batch_evaluation_core` function, which expects the correct ingested format. Refer to the backend documentation or the `ingest_rlhf_data.py` script for the precise schema.
+  * Expects JSON files conforming to the *ingested* data format (output of `ingest_rlhf_data.py`), typically a list of tasks with `task_id`, `prompt`, `ideal_response`, etc.
+  * The app passes file paths to `run_batch_evaluation_core`, which handles the actual parsing.
 * **Results Data Structure (`_final_results.json` -> Pandas DataFrame):**
-* When viewing results, the `load_and_process_results` function reads the `_final_results.json` file(s) generated by evaluation runs.
-* Each `_final_results.json` contains a list of dictionaries, where each dictionary represents the complete evaluation data for a single task, including the original input, structured output, judge's scores (overall performance, rubric scores, justifications), model IDs, and metadata.
-* This list of dictionaries is loaded directly into a Pandas DataFrame within the Streamlit app (`st.session_state.results_df`).
-* Columns in the DataFrame correspond to the keys in the JSON dictionaries (e.g., `task_id`, `model_id`, `prompt`, `ideal_response`, `structured_response`, `judge_prompt`, `judge_response`, `performance_score`, `rubric_scores.Completeness`, `rubric_justifications.Completeness`, etc.).
-* This DataFrame is then used as the input for various display functions (`display_performance_plots`, `display_results_table`, etc.) to generate tables and Plotly charts. An aggregated summary dictionary (`st.session_state.aggregated_summary`) is also computed from this DataFrame.
+  * `load_and_process_results` reads `_final_results.json` (list of dictionaries per task).
+  * This is loaded into a Pandas DataFrame (`st.session_state.results_df`) with columns like `task_id`, `model_id`, `performance_score`, `rubric_scores.*`, etc.
+  * This DataFrame drives the tables and Plotly charts in the "View Results" tab. An aggregated summary dictionary (`st.session_state.aggregated_summary`) and potentially an original file summary (`st.session_state.original_file_summary`) are also computed.
 
 **File/Folder Interaction:**
 
 * **Prompt Templates (`CogniBench/prompts/`):**
-* The `get_templates` function scans the `CogniBench/prompts/structuring/` and `CogniBench/prompts/judging/` subdirectories (paths obtained from `core.constants.STRUCTURING_TEMPLATES_DIR` and `core.constants.JUDGING_TEMPLATES_DIR`) for files ending in `.txt`.
-* The names (stems) and paths of these `.txt` files are used to populate the "Structuring Prompt Template" and "Judging Prompt Template" dropdowns (`st.selectbox`) in the `render_config_ui` function.
+  * `get_templates` scans `CogniBench/prompts/structuring/` and `CogniBench/prompts/judging/` for `.txt` files to populate dropdowns.
 * **Base Configuration (`CogniBench/config.yaml`):**
-* The application reads the base configuration settings directly from `CogniBench/config.yaml`. The path to this file is obtained from `core.constants.BASE_CONFIG_PATH`.
-* The `generate_run_config` function loads this YAML file as the starting point and then merges the user's selections from the UI on top of it.
+  * Read by `generate_run_config` as the base, merged with UI selections.
 * **Output Directory (`CogniBench/data/`):**
-* When an evaluation is initiated from the Streamlit app, the `generate_run_config` function dynamically creates a unique output subdirectory within `CogniBench/data/` (path obtained from `core.constants.DATA_DIR`).
-* The subdirectory name is generated based on the stem(s) of the input JSON file(s) and a timestamp (e.g., `Batch-001_20250417_0843`).
-* This generated path (e.g., `/Users/druk/WorkSpace/Turing/Benchmarking/CogniBench/data/Batch-001_20250417_0843`) is included in the `AppConfig` object passed to `run_batch_evaluation_core`.
-* All output files for that specific run (`_evaluations.jsonl`, `_final_results.json`, `_evaluations_formatted.json`, logs, etc.) are saved within this dynamically created subdirectory.
+  * `generate_run_config` creates a unique subdirectory within `CogniBench/data/` for each run.
+  * The name uses cleaned-up stems of input file(s) and a timestamp (e.g., `Batch-001_20250417_1417`).
+  * All run outputs (`_final_results.json`, logs, etc.) are saved here.
+* **Ingested Data (`_ingested*.json`):**
+  * `load_and_process_results` looks for a corresponding `_ingested*.json` file in the selected results folders to load the original file summary.
 
 **Conclusion:**
 
-The `cognibench_agent` directory provides a dedicated web interface for managing and executing CogniBench evaluations. It is not a generic agent or API client but rather a tightly integrated Streamlit application that leverages the project's core Python modules directly, offering a user-friendly way to configure runs, view progress, and analyze results.
+The `cognibench_agent` provides a dedicated Streamlit interface for managing CogniBench evaluations via two main tabs: "Run Evaluation" for configuration and execution, and "View Results" for detailed analysis and comparison of completed runs. It directly leverages the project's core Python modules.
