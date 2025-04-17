@@ -516,9 +516,9 @@ def run_evaluation_workflow(
             eval_instance_id,
             e,
         )
-        # Return a standardized error dictionary
+        # Return a standardized error dictionary with exception type in message
         return {
             "status": "error",
-            "message": f"Unexpected workflow error: {e}",
+            "message": f"Unexpected workflow error: {type(e).__name__}: {e}", # Added exception type
             "evaluation_id": f"eval_error_{uuid.uuid4()}",  # Generate an ID for tracking
         }
