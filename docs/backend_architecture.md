@@ -3,81 +3,142 @@
 This document outlines the backend architecture of the CogniBench project, focusing on the components responsible for orchestrating and executing Large Language Model (LLM) evaluations. The backend is primarily composed of three main parts: a core evaluation library, a set of operational scripts, and an optional API layer.
 
 ```mermaid
-graph LR
-    subgraph UserInteraction [User Interaction]
-        direction LR
-        CLI[CLI User] -- runs --> BatchScript(scripts/run_batch_evaluation.py)
-        CLI -- runs --> SingleScript(scripts/run_single_evaluation.py)
-        APIUser[API User] -- calls --> API(api/main.py)
-    end
+ graph TD
+     subgraph UserInteraction [User Interaction]
+         direction LR
+         CLI[CLI User] -- runs --> ScriptRunner{"Scripts (run_*, prepare_*, retrieve_*)"}
+         APIUser[API User] -- calls --> API(api/main.py)
+         StreamlitUser[Streamlit User] -- interacts --> StreamlitApp(cognibench_agent/app.py)
+     end
 
-    subgraph ProcessingPipeline [Processing Pipeline]
-        direction TB
-        RawRLHF[(Raw RLHF JSON)] -- input --> Ingest(scripts/ingest_rlhf_data.py)
-        Ingest -- produces --> IngestedData[(Ingested JSON Format)]
+     subgraph ProcessingPipeline [Processing Pipeline]
+         direction TB
 
-        BatchScript -- triggers --> Ingest
-        BatchScript -- uses --> BatchRunner(core/evaluation_runner.py::run_batch_evaluation_core)
-        SingleScript -- uses --> SingleRunner(core/evaluation_runner.py::run_evaluation_from_file) %% Assumed similar to BatchRunner but on single file
-        API -- uses --> SingleTaskRunner(core/evaluation_runner.py::run_single_task_evaluation_core)
+         subgraph DataInput
+             RawRLHF[(Raw RLHF JSON)] -- input --> Ingest(scripts/ingest_rlhf_data.py)
+             IngestedData[(Ingested JSON Format)]
+             Ingest -- produces --> IngestedData
+             StructuredData[(Structured Output JSON)]
+             APIInputData[(API Input Data)]
+         end
 
-        BatchRunner -- reads --> IngestedData
-        SingleRunner -- reads --> IngestedData %% Assumed
-        SingleTaskRunner -- uses --> InputDataAPI[(API Input Data)]
+         subgraph CoreLogic ["Core Library (core/)"]
+             Config(config.py / config.yaml)
+             Workflow(workflow.py)
+             Runner(evaluation_runner.py)
+             LLMClient(llm_clients/*)
+             BatchProcessor(batch_processor.py)
+             Parser(response_parser.py)
+             Postprocessor(postprocessing.py)
+             Writer(output_writer.py)
+             Prompts(prompt_templates.py / prompts/*)
+         end
 
-        BatchRunner -- calls multiple --> Workflow(core/workflow.py::run_evaluation_workflow)
-        SingleRunner -- calls multiple --> Workflow %% Implied
-        SingleTaskRunner -- calls single --> Workflow
+         subgraph ScriptsLayer ["Scripts (scripts/)"]
+             BatchScript(run_batch_evaluation.py)
+             SingleScript(run_single_evaluation.py)
+             PrepareJudgingScript(prepare_judging_batch.py)
+             RetrieveResultsScript(retrieve_batch_results.py)
+             OtherScripts(...)
+         end
 
-        Workflow -- uses --> Config(core/config.py / config.yaml)
-        Workflow -- uses --> LLMClient(core/llm_clients/*)
-        Workflow -- uses --> Prompts(core/prompt_templates.py / prompts/*)
-        Workflow -- uses --> Parser(core/response_parser.py)
-        Workflow -- uses --> Postprocessor(core/postprocessing.py)
-        Workflow -- uses --> Writer(core/output_writer.py)
+         %% Connections
+         ScriptRunner -- uses --> CoreLogic
+         ScriptRunner -- reads/writes --> DataStorage
+         API -- uses --> Runner
+         API -- uses --> Workflow
+         StreamlitApp -- uses --> Runner
 
-        LLMClient -- interacts --> ExternalLLM["External LLM API (e.g., OpenAI)"]
+         BatchScript -- triggers --> Ingest
+         BatchScript -- uses --> Runner
+         SingleScript -- uses --> Runner %% Assumed
+         PrepareJudgingScript -- reads --> StructuredData
+         PrepareJudgingScript -- uses --> BatchProcessor
+         PrepareJudgingScript -- uses --> LLMClient
+         RetrieveResultsScript -- uses --> BatchProcessor
+         RetrieveResultsScript -- uses --> LLMClient
+         RetrieveResultsScript -- reads --> IntermediateDataMap
+         RetrieveResultsScript -- writes --> StructuredData
+         RetrieveResultsScript -- uses --> Workflow %% For post-processing
+         RetrieveResultsScript -- uses --> Writer
 
-        Writer -- writes --> ResultsJSONL[(_evaluations.jsonl)]
-        BatchRunner -- aggregates --> ResultsJSON[(_final_results.json)]
-    end;
+         Runner -- reads --> IngestedData
+         Runner -- calls --> Workflow
+         Runner -- uses --> BatchProcessor %% For batch mode submission
+         Runner -- writes --> IntermediateDataMap
 
-    UserInteraction --> ProcessingPipeline
-    ProcessingPipeline --> ResultsJSONL
-    ProcessingPipeline --> ResultsJSON
-```
+         Workflow -- uses --> Config
+         Workflow -- uses --> LLMClient
+         Workflow -- uses --> Prompts
+         Workflow -- uses --> Parser
+         Workflow -- uses --> Postprocessor
+         Workflow -- uses --> Writer
+         Workflow -- uses --> BatchProcessor %% For formatting requests
+
+         BatchProcessor -- uses --> LLMClient
+
+         LLMClient -- interacts --> ExternalLLM["External LLM API (OpenAI Sync/Batch)"]
+
+         Writer -- writes --> ResultsJSONL[(_evaluations.jsonl)]
+         Runner -- aggregates --> ResultsJSON[(_final_results.json)] %% In sync mode
+         RetrieveResultsScript -- writes --> ResultsJSONL %% In batch mode (via Writer)
+     end
+
+     subgraph DataStorage ["Data Storage (data/)"]
+         direction TB
+         BatchOutputDir("Batch-XXX_YYYYMMDD_HHMM/")
+         IntermediateDataDir("batch_intermediate_data/")
+         BatchOutputDir --> IngestedDataFile("..._ingested_...json")
+         BatchOutputDir --> EvalJSONL("..._evaluations.jsonl")
+         BatchOutputDir --> FinalResultsJSON("..._final_results.json")
+         IntermediateDataDir --> IntermediateDataMap("intermediate_data_...json")
+         BatchOutputDir --> StructuredOutputFile("structured_output_...json") %% Output of retrieve --stage structuring
+     end
+
+     UserInteraction --> ProcessingPipeline
+     ProcessingPipeline --> DataStorage
+
+     %% Styling
+     style CoreLogic fill:#c5cae9, stroke:#333
+     style ScriptsLayer fill:#ffe0b2, stroke:#333
+     style DataInput fill:#b2dfdb, stroke:#333
+     style DataStorage fill:#d1c4e9, stroke:#333
+ ```
 
 ### Core Library (`CogniBench/core/`)
 
 The `core/` directory contains the central logic for the evaluation process.
 
-*   **`workflow.py`**: Defines the `run_evaluation_workflow` function, which executes the evaluation steps for a *single* task instance (i.e., one model's response to one prompt).
-*   **`evaluation_runner.py`**: Provides higher-level functions to manage evaluation runs (`run_single_task_evaluation_core`, `run_batch_evaluation_core`).
-*   **`llm_clients/`**: Contains the interface for interacting with LLMs (`base.py`, `openai_client.py`).
-*   **`config.py`**: Defines Pydantic models (`AppConfig`) for loading `config.yaml`.
+*   **`workflow.py`**: Defines `run_evaluation_workflow` (executes evaluation steps for a single task instance, handling synchronous LLM calls or preparing requests for batch mode), `process_judging_output` (parses judge response and runs post-processing), and `finalize_and_save_evaluation` (calls output writer).
+*   **`evaluation_runner.py`**: Provides higher-level functions (`run_single_task_evaluation_core`, `run_batch_evaluation_core`) to manage evaluation runs, handling task iteration, caching, cancellation, and conditional logic for synchronous vs. batch mode (initiating batch submission).
+*   **`batch_processor.py`**: (New) Contains functions specifically for interacting with the OpenAI Batch API (formatting JSONL, uploading files, creating jobs, checking status, downloading/parsing results).
+*   **`llm_clients/`**: Contains the interface for interacting with LLMs (`base.py`, `openai_client.py`). `openai_client.py` now includes helpers for Batch API file uploads, batch creation, status retrieval, and result downloading.
+*   **`config.py`**: Defines Pydantic models (`AppConfig`, including new `BatchSettings`) for loading and validating `config.yaml`.
 *   **`response_parser.py`**: Contains `parse_judge_response` for extracting structured data from the judge LLM's raw output.
 *   **`preprocessing.py`**: Includes utility functions like `normalize_text_formats`.
 *   **`postprocessing.py`**: Implements `perform_postprocessing` for final answer verification, score aggregation, and review flagging.
-*   **`output_writer.py`**: Handles saving evaluation results (`save_evaluation_result`) to JSONL files.
+*   **`output_writer.py`**: Handles saving evaluation results (`save_evaluation_result`) to JSONL files. Verified to handle potentially missing metrics from batch context.
 *   **`prompt_templates.py`**: Provides `load_prompt_template`.
 *   **Other Files**: `constants.py`, `log_setup.py`, `schemas/`.
 
 #### Key Function Contracts (Core)
 
 *   **`run_evaluation_workflow` (`workflow.py`)**
-    *   **Purpose:** Executes the complete evaluation pipeline for a single task instance (one prompt, one model response, one ideal response). This involves structuring *both* the model's response and the ideal response using an LLM (with caching for the ideal response), preparing a prompt for a "judge" LLM using the structured outputs (converted back to strings), invoking the judge LLM, parsing the judge's response, performing post-processing (like final answer verification and score aggregation), and saving the detailed results (including API call counts and timing) to a JSONL file. Handles retries for structuring and judging LLM calls.
-    *   **Inputs:** `prompt` (str), `response` (Any), `ideal_response` (Any), `correct_answer` (str), `config` (AppConfig), `task_id` (Optional[str]), `model_id` (Optional[str]), `llm_client` (Optional[BaseLLMClient]), `structured` (bool), `output_jsonl_path` (Optional[Path]), `structured_ideal_cache` (Optional[Dict[str, Any]]).
-    *   **Outputs:** (Dict[str, Any]) - Dictionary indicating success/error status, the evaluation ID, and potentially other details like save status.
+    *   **Purpose:** Executes the evaluation steps for a single task instance. If `aggregate_structuring` is `True`, prepares and returns request dictionaries for batch processing. If `False` (synchronous mode), performs structuring LLM calls, judging LLM call, calls `process_judging_output`, and `finalize_and_save_evaluation`. Handles retries for synchronous LLM calls.
+    *   **Inputs:** `prompt` (str), `response` (Any), `ideal_response` (Any), `correct_answer` (str), `config` (Dict), `task_id` (Optional[str]), `model_id` (Optional[str]), `llm_client` (Optional[BaseLLMClient]), `output_jsonl_path` (Optional[Path]), `structured_ideal_cache` (Optional[Dict[str, Any]]), `aggregate_structuring` (bool).
+    *   **Outputs:** (Dict[str, Any]) - In synchronous mode, dictionary indicating success/error status and evaluation ID. In aggregation mode, dictionary containing request dictionaries (`model_request`, `ideal_request`).
 
 *   **`run_single_task_evaluation_core` (`evaluation_runner.py`)**
-    *   **Purpose:** Processes a single task dictionary, which might contain multiple model responses for the same prompt. Handles different input formats (RLHF vs. ingested) to extract necessary data (`prompt`, `ideal_response`, `model_responses`, `final_answer`). Uses standardized logic (`taskId` > `id` > `task_id`) to determine the task identifier. Calls `run_evaluation_workflow` for each model response within the task. Manages the ideal response structuring cache and cancellation signals.
-    *   **Inputs:** `task_index` (int), `task_data` (Dict[str, Any]), `config` (AppConfig), `use_structured` (bool), `output_jsonl_path` (Optional[Path]), `structured_ideal_cache` (Optional[Dict]), `stop_event` (Optional[threading.Event]).
-    *   **Outputs:** (Tuple[List[Dict], bool]) - A list of results from `run_evaluation_workflow` calls and a boolean indicating overall task success/failure (considering workflow errors and cancellation).
+    *   **Purpose:** Processes a single task dictionary containing potentially multiple model responses. Calls `run_evaluation_workflow` for each model response, passing the `aggregate_structuring` flag based on the overall mode. Manages ideal response cache and cancellation.
+    *   **Inputs:** `task_index` (int), `task_data` (Dict[str, Any]), `config` (AppConfig), `output_jsonl_path` (Optional[Path]), `structured_ideal_cache` (Optional[Dict]), `stop_event` (Optional[threading.Event]), `aggregate_structuring` (bool).
+    *   **Outputs:** (Tuple[List[Dict], bool]) - A list of results from `run_evaluation_workflow` calls (either evaluation statuses or request dictionaries) and a boolean indicating overall task success/failure.
 
 *   **`run_batch_evaluation_core` (`evaluation_runner.py`)**
-    *   **Purpose:** Orchestrates evaluation for multiple tasks defined across one or more input JSON files (expected in ingested format). Iterates through files, loads tasks, calls `run_single_task_evaluation_core` for each task. Manages output file creation (`_evaluations.jsonl`, `_final_results.json`) using the *cleaned input file stem* within the timestamped batch directory (`output_dir`). Aggregates results by reading the generated `_evaluations.jsonl`, mapping evaluation records back to the original task data (using the standardized task ID), calculating summary statistics, and combining everything into the final `_final_results.json` report. Supports cancellation and includes improved error handling for file operations.
-    *   **Inputs:** `config` (AppConfig), `output_dir` (Path), `use_structured` (bool), `stop_event` (Optional[threading.Event]).
-    *   **Outputs:** (Optional[List[str]]) - List of absolute paths to generated `_final_results.json` files on success, `None` on failure/cancellation.
+    *   **Purpose:** Orchestrates evaluation for multiple tasks across input files. Checks `config.batch_settings.enabled`.
+       *   **If Batch Mode Enabled:** Iterates through tasks calling `run_single_task_evaluation_core` with `aggregate_structuring=True`. Collects structuring requests, uses `batch_processor` to submit the structuring batch job, saves the intermediate data map, logs the batch ID, and returns.
+       *   **If Batch Mode Disabled (Synchronous):** Iterates through tasks calling `run_single_task_evaluation_core` with `aggregate_structuring=False`. Processes results immediately, manages output files (`_evaluations.jsonl`, `_final_results.json`), aggregates final results, and returns paths to final reports.
+    *   **Inputs:** `config` (AppConfig), `output_dir` (Path), `stop_event` (Optional[threading.Event]). *(Removed `use_structured` as structuring is now mandatory)*.
+    *   **Outputs:** (Optional[List[str]]) - Synchronous mode: List of paths to `_final_results.json` files. Batch mode: `None` (as processing is asynchronous).
 
 *   **`parse_judge_response` (`response_parser.py`)**
     *   **Purpose:** Parses the raw string output from the "judge" LLM. Extracts a JSON block (handling markdown fences), parses it (with `json5` fallback), validates its structure (requires `evaluation` key), and validates the content within `evaluation` against expected criteria and allowed scores from the config.
@@ -99,12 +160,14 @@ The `core/` directory contains the central logic for the evaluation process.
 
 ### Scripts (`CogniBench/scripts/`)
 
-*   **`run_batch_evaluation.py`**: Command-line interface for end-to-end batch processing. Takes configuration, triggers ingestion (if needed), runs `run_batch_evaluation_core`, and handles output directory creation.
-*   **`run_single_evaluation.py`**: CLI for running evaluation on a *single pre-ingested* JSON file (containing potentially multiple tasks). Useful for rerunning evaluations without full batch setup.
-*   **`ingest_rlhf_data.py`**: Preprocesses raw RLHF JSON data into the format expected by the evaluation runners. Extracts key fields, performs basic transformations (e.g., boolean conversion), and saves the output.
-*   **`run_structuring.py`**: Runs *only* the structuring step of the workflow on input data. Useful for debugging or pre-calculating structured representations.
-*   **`review_flagged_evals.py`**: A utility tool (likely interactive) for reviewing evaluations that were flagged as needing human attention during postprocessing.
-*   **`show_evaluation_data.py`**: A utility tool for displaying evaluation results stored in output files in a user-friendly format.
+*   **`run_batch_evaluation.py`**: CLI for end-to-end processing. If batch mode is disabled in config, runs the full synchronous evaluation via `run_batch_evaluation_core`. If batch mode is enabled, triggers ingestion (optional) and then calls `run_batch_evaluation_core` which will *only submit the structuring batch* and save intermediate data.
+*   **`prepare_judging_batch.py`**: (New) CLI script used in batch mode. Takes structured output (from `retrieve_batch_results.py --stage structuring`), generates judging requests, and uses `batch_processor` to submit the judging batch job. Logs the judging batch ID.
+*   **`retrieve_batch_results.py`**: (New) CLI script used in batch mode. Takes a `--batch-id` and `--stage` (`structuring` or `judging`). Polls for batch completion using `batch_processor`. Downloads and parses results. Loads intermediate data map. If stage is `structuring`, saves combined structured output. If stage is `judging`, calls `workflow.py` functions for post-processing and saves final results via `output_writer.py`.
+*   **`run_single_evaluation.py`**: CLI for running synchronous evaluation on a single pre-ingested JSON file.
+*   **`ingest_rlhf_data.py`**: Preprocesses raw RLHF JSON data into the ingested format.
+*   **`run_structuring.py`**: Runs *only* the synchronous structuring step. (May need update if batch structuring is desired standalone).
+*   **`review_flagged_evals.py`**: Utility for reviewing flagged evaluations.
+*   **`show_evaluation_data.py`**: Utility for displaying evaluation results.
 
 #### Key Function Contracts (Scripts)
 
@@ -116,13 +179,14 @@ The `core/` directory contains the central logic for the evaluation process.
 ### Configuration (`config.yaml` & `core/config.py`)
 
 *   **`config.yaml`**: Central configuration file defining settings for:
-    *   LLM clients (API keys, default models for structuring/judging).
+    *   LLM clients (API keys, default models).
     *   Input/Output paths.
     *   Evaluation settings (judge model, prompt template path, expected criteria, allowed scores).
     *   Structuring settings (structuring model, prompt template path).
-    *   Aggregation rules (e.g., fail if any 'No' score).
-    *   Consistency checks (e.g., trivial justification length).
-*   **`core/config.py`**: Defines Pydantic models (e.g., `AppConfig`, `LLMClientConfig`, `EvaluationSettings`) used to load, validate, and access the settings from `config.yaml` in a type-safe manner.
+    *   Aggregation rules.
+    *   Consistency checks.
+    *   **`batch_settings`**: (New) Contains `enabled` flag, `poll_interval_seconds`, `max_poll_attempts`, `intermediate_data_dir`.
+*   **`core/config.py`**: Defines Pydantic models (e.g., `AppConfig`, `LLMClientConfig`, `EvaluationSettings`, `BatchSettings`) used to load, validate, and access settings from `config.yaml`.
 
 ### Data Structures and Examples
 
@@ -405,34 +469,57 @@ Some concluding text.
     }
     ```
 
-### Batch Output Folder and File Structure
+### Batch Output Folder and File Structure (Synchronous Mode)
 
-When `scripts/run_batch_evaluation.py` is executed, it creates a dedicated, timestamped output directory within the main `CogniBench/data/` directory. The name of this output directory is typically based on the input batch name(s) and the execution timestamp (e.g., `Batch-XXX_YYYYMMDD_HHMM/` or `Batch-003_Batch-004_YYYYMMDD_HHMM/`).
+When `scripts/run_batch_evaluation.py` is executed with **batch mode disabled**, it creates a dedicated, timestamped output directory within the main `CogniBench/data/` directory (e.g., `Batch-XXX_YYYYMMDD_HHMM/`).
 
-Within this generated output directory, the following key intermediate and final result files are saved, using the **cleaned stem** of the input file(s) for the filenames:
+Within this directory, the following key files are saved, using the **cleaned stem** of the input file(s) for the filenames:
 
 ```
 CogniBench/
 └── data/
-    └── Batch-XXX_YYYYMMDD_HHMM/  <-- Timestamped Output Directory
+    └── Batch-XXX_YYYYMMDD_HHMM/  <-- Timestamped Output Directory (Sync Mode)
         ├── Batch-XXX_ingested_YYYYMMDD_HHMM.json  (Optional: Preprocessed input)
-        ├── Batch-XXX_evaluations.jsonl            (Detailed results per evaluation, filename based on cleaned input stem)
-        ├── Batch-XXX_evaluations_formatted.json   (Optional: Prettified JSONL, filename based on cleaned input stem)
-        └── Batch-XXX_final_results.json           (Final aggregated results, filename based on cleaned input stem)
+        ├── Batch-XXX_evaluations.jsonl            (Detailed results per evaluation)
+        ├── Batch-XXX_evaluations_formatted.json   (Optional: Prettified JSONL)
+        └── Batch-XXX_final_results.json           (Final aggregated results)
 ```
+*(Descriptions as before)*
 
-*   **`Batch-XXX_ingested_YYYYMMDD_HHMM.json`**: (Optional, created if ingestion is run as part of the batch script) The result of preprocessing the raw input JSON (e.g., `Task_JSONs/Batch-XXX.json`) via `scripts/ingest_rlhf_data.py`. This file contains the standardized task data consumed by the evaluation core.
-*   **`Batch-XXX_evaluations.jsonl`**: Contains the detailed, raw evaluation results for *each individual model response* evaluated within the batch, written line-by-line in JSON Lines format. Each line corresponds to the output of `core/output_writer.py::save_evaluation_result`. This is the primary log of individual evaluation outcomes. The filename uses the cleaned stem of the corresponding input file.
-*   **`Batch-XXX_evaluations_formatted.json`**: (Optional, generated by `run_batch_evaluation.py` after the core processing) A prettified JSON version of the `_evaluations.jsonl` file, often used for easier manual inspection. The filename uses the cleaned stem of the corresponding input file.
-*   **`Batch-XXX_final_results.json`**: The final aggregated results file for the input batch (`Batch-XXX.json`). It groups the detailed evaluations from the JSONL file by `task_id` and includes the original prompt, ideal response, metadata, structured responses, and a list of evaluations (one per model response), combining the model's response text with the corresponding judge evaluation details. This file is typically used for analysis and reporting. The filename uses the cleaned stem of the corresponding input file.
+### Batch Output Folder and File Structure (Batch API Mode)
+
+When running in **Batch API mode**, multiple scripts interact with the filesystem.
+1.  `run_batch_evaluation.py` creates the timestamped output directory (`Batch-XXX_YYYYMMDD_HHMM/`) and saves the optional ingested file there. It also creates `batch_intermediate_data/` (location configurable) and saves `intermediate_data_<structuring_batch_id>.json` inside it.
+2.  `retrieve_batch_results.py --stage structuring` downloads the raw batch results (temporary file, deleted after parsing) and saves the processed structured output to a user-specified path (e.g., `structured_output.json`).
+3.  `prepare_judging_batch.py` reads the structured output file.
+4.  `retrieve_batch_results.py --stage judging` downloads the raw judging batch results (temporary file, deleted after parsing), performs post-processing, and saves the final results via `save_evaluation_result` which writes to a JSONL file specified by the user (e.g., `final_results.jsonl`). *Note: Aggregation into a single `_final_results.json` like in sync mode is not currently implemented in the batch retrieve script.*
+
+```
+CogniBench/
+├── data/
+│   └── Batch-XXX_YYYYMMDD_HHMM/  <-- Timestamped Output Directory
+│       └── Batch-XXX_ingested_YYYYMMDD_HHMM.json (Optional)
+├── batch_intermediate_data/       <-- Intermediate Data Directory (Configurable)
+│   └── intermediate_data_<structuring_batch_id>.json
+├── structured_output.json         <-- Output of retrieve --stage structuring (User specified path)
+└── final_results.jsonl            <-- Output of retrieve --stage judging (User specified path)
+```
 
 ### Data Flow Summary
 
-*   **Batch Evaluation (CLI):**
-    1.  Raw Input JSON -> `ingest_rlhf_data.py` -> Ingested JSON Format
-    2.  Ingested JSON -> `run_batch_evaluation_core` -> (Loop over tasks) `run_single_task_evaluation_core` -> (Loop over models) `run_evaluation_workflow` -> Append to `_evaluations.jsonl`
-    3.  `run_batch_evaluation_core` reads `_evaluations.jsonl`, maps back to Ingested JSON via standardized task ID, aggregates -> `_final_results.json`.
-*   **Single Evaluation (API):** API Call (`EvaluationRequest`) -> `run_single_task_evaluation_core` -> `run_evaluation_workflow` -> Append to `_evaluations.jsonl` -> API Response (`EvaluationResponse`) -> Later GET `/get_evaluation_result/{id}` retrieves data similar to JSONL line.
+*   **Synchronous Evaluation (CLI/UI):**
+    1.  Raw Input JSON -> `ingest_rlhf_data.py` (optional) -> Ingested JSON Format
+    2.  Ingested JSON -> `run_batch_evaluation_core` -> (Loop) `run_single_task_evaluation_core` -> (Loop) `run_evaluation_workflow` (Sync LLM calls, processing) -> Append to `_evaluations.jsonl`
+    3.  `run_batch_evaluation_core` reads `_evaluations.jsonl`, aggregates -> `_final_results.json`.
+*   **Batch API Evaluation (CLI - Manual Steps):**
+    1.  Raw Input JSON -> `ingest_rlhf_data.py` (optional) -> Ingested JSON Format
+    2.  Ingested JSON -> `run_batch_evaluation.py` -> Generate Structuring Requests -> Submit Structuring Batch -> Save `intermediate_data_map.json`.
+    3.  **(Wait)**
+    4.  `retrieve_batch_results.py --stage structuring` -> Poll Status -> Download/Parse Results -> Load `intermediate_data_map.json` -> Save `structured_output.json`.
+    5.  `structured_output.json` -> `prepare_judging_batch.py` -> Generate Judging Requests -> Submit Judging Batch.
+    6.  **(Wait)**
+    7.  `retrieve_batch_results.py --stage judging` -> Poll Status -> Download/Parse Results -> Load `intermediate_data_map.json` -> Post-process -> Save final results line-by-line to `final_results.jsonl`.
+*   **Single Evaluation (API):** (Remains Synchronous) API Call -> `run_single_task_evaluation_core` -> `run_evaluation_workflow` -> Append to `_evaluations.jsonl` -> API Response -> GET retrieves data.
 
 ### Key Technologies
 

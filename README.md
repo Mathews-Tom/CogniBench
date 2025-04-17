@@ -129,13 +129,13 @@ Provides a graphical interface for running evaluations.
 streamlit run cognibench_agent/app.py
 ```
 
-1.  Launch the app using the command above from the `CogniBench` root directory.
-2.  Upload one or more raw batch JSON files (e.g., from `Task_JSONs/`).
-3.  Configure the Structuring and Judging models, API keys (optional), and prompt templates.
-4.  Click "Run Evaluation". Progress and detailed logs will appear in the "Run Output / Log" expander.
-5.  Results (plots, tables) will appear upon completion. Intermediate and final files are saved persistently to `CogniBench/data/<BatchFileName>_YYYYMMDD_HHMM/`.
-6.  Use "Load Existing Results" to select and view results from previous runs saved in the `data` directory.
-7.  Use "Clear Caches (Results & LLM)" to clear LLM API call caches and Streamlit's data loading cache if needed.
+1. Launch the app using the command above from the `CogniBench` root directory.
+2. Upload one or more raw batch JSON files (e.g., from `Task_JSONs/`).
+3. Configure the Structuring and Judging models, API keys (optional), and prompt templates.
+4. Click "Run Evaluation". Progress and detailed logs will appear in the "Run Output / Log" expander.
+5. Results (plots, tables) will appear upon completion. Intermediate and final files are saved persistently to `CogniBench/data/<BatchFileName>_YYYYMMDD_HHMM/`.
+6. Use "Load Existing Results" to select and view results from previous runs saved in the `data` directory.
+7. Use "Clear Caches (Results & LLM)" to clear LLM API call caches and Streamlit's data loading cache if needed.
 
 **Running Evaluations via Scripts:**
 
@@ -171,6 +171,65 @@ This script will:
 5. Create a final combined results file (`_final_results.json`) inside the subdirectory, grouping results by task ID.
 6. Log detailed output to a timestamped file in `logs/`.
 7. Display a `tqdm` progress bar on the console during the evaluation step.
+
+### Running Evaluations with Batch API Mode (Experimental)
+
+If you have enabled the OpenAI Batch API mode in your `config.yaml` (by setting `batch_settings.enabled: true`), the evaluation process becomes asynchronous and requires manual steps to manage the batch jobs submitted to OpenAI.
+
+**Important:** This mode relies on OpenAI's Batch API, which can take significant time (up to 24 hours per batch) to complete. You will need to manually track **Batch IDs** and execute scripts sequentially.
+
+The workflow is as follows:
+
+**Step 1: Submit Structuring Batch**
+
+1. Run the primary batch script. This will *only* submit the initial structuring batch request to OpenAI if Batch API mode is enabled.
+
+```bash
+python3 scripts/run_batch_evaluation.py <path_to_raw_batch_file.json> --config <path_to_config.yaml>
+```
+
+* This script handles the ingestion of the raw data file first.
+* If batch mode is enabled, it then prepares and submits *only* the structuring requests to the OpenAI Batch API.
+
+2. The script will output a **Structuring Batch ID** (e.g., `batch_abc123`). **Save this ID carefully.**
+3. **Wait** for OpenAI to process this batch. You can monitor its status via the OpenAI Batch Dashboard or API. This can take several hours or longer.
+
+**Step 2: Retrieve Structuring Results & Submit Judging Batch**
+
+1. Once the structuring batch shows as 'completed' in OpenAI, retrieve its results using the saved ID:
+
+```bash
+python3 scripts/retrieve_batch_results.py --batch-id <Structuring_Batch_ID> --stage structuring --output-path <path_for_structured_output.json> --config <path_to_config.yaml>
+```
+
+* Replace `<Structuring_Batch_ID>` with the ID from Step 1.
+* Specify an `<output-path>` (e.g., `data/<YourBatchName>_YYYYMMDD_HHMM/structured_results.json`) to save the retrieved structuring results. This script downloads the output file associated with the completed batch job from OpenAI.
+
+2. Prepare and submit the judging batch using the structured results:
+
+```bash
+python3 scripts/prepare_judging_batch.py --structured-input <path_from_previous_step.json> --config <path_to_config.yaml>
+```
+
+* Use the `<output-path>` from the previous command as the `--structured-input`. This script reads the structured results, prepares the judging prompts, and submits the judging requests as a new batch job to the OpenAI Batch API.
+
+3. This script will output a **Judging Batch ID**. **Save this ID carefully.**
+4. **Wait** again for OpenAI to process the judging batch.
+
+**Step 3: Retrieve Judging Results & Finalize**
+
+1. Once the judging batch shows as 'completed' in OpenAI, retrieve the final results:
+
+```bash
+python3 scripts/retrieve_batch_results.py --batch-id <Judging_Batch_ID> --stage judging --output-path <path_for_final_results.jsonl> --config <path_to_config.yaml>
+```
+
+* Replace `<Judging_Batch_ID>` with the ID from Step 2.
+* Specify the final `<output-path>` (e.g., `data/<YourBatchName>_YYYYMMDD_HHMM/final_evaluations.jsonl`) where the processed judging results will be saved in JSON Lines format.
+
+2. This script retrieves the judging results, performs final postprocessing (like answer verification using the original ingested data), and saves the complete evaluation data to the specified file using the `save_evaluation_result` function from `output_writer.py`.
+
+This multi-step process gives you control over the asynchronous Batch API workflow but requires careful management of IDs and waiting periods between steps.
 
 ## Troubleshooting
 
