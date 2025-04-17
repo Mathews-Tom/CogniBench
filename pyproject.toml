@@ -15,6 +15,11 @@ dependencies = [
     "watchdog>=6.0.0",
     "antlr4-python3-runtime>=4.11",
     "sympy>=1.13.3",
+    "plotly>=6.0.1",
+    "pandas>=2.2.3",
+    "numpy>=2.2.4",
+    "pydantic>=2.11.3",
+    "streamlit>=1.33.0", # Added for the agent UI
 ]
 
 [project.optional-dependencies]
