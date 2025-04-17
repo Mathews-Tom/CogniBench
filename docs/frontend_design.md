@@ -8,10 +8,10 @@ The `CogniBench/cognibench_agent/` directory houses the primary user-facing comp
 * **User Interaction:** Users interact with the application through their web browser. The interface allows them to:
   * **Run Evaluation Tab:**
     * Upload raw evaluation task data (JSON files conforming to the ingested format).
-    * Configure the evaluation run: select structuring and judging models (e.g., different OpenAI models), provide optional API keys, and choose specific prompt templates (`.txt` files) from the `CogniBench/prompts/` subdirectories.
-    * Initiate the evaluation process, which runs in a background thread.
-    * View the progress and filtered logs (excluding DEBUG level) of the running evaluation in real-time.
-    * See the elapsed time for the current run.
+    * Configure the evaluation run: select structuring and judging models (e.g., different OpenAI models), provide optional API keys, and choose specific prompt templates (`.txt` files) from the `CogniBench/prompts/` subdirectories. **Note:** This configuration applies only to the synchronous evaluation mode run via the UI.
+    * Initiate the **synchronous** evaluation process, which runs in a background thread. **The UI does not currently support initiating or managing the asynchronous Batch API workflow.**
+    * View the progress and filtered logs (excluding DEBUG level) of the running synchronous evaluation in real-time.
+    * See the elapsed time for the current synchronous run.
     * Stop an ongoing evaluation.
   * **View Results Tab:**
     * Select one or more completed evaluation run folders (from `CogniBench/data/`) to load results from. The selector defaults to the most recently completed run if available.
@@ -34,7 +34,8 @@ The `CogniBench/cognibench_agent/` directory houses the primary user-facing comp
 **Backend Connection:**
 
 * This Streamlit application does **not** interact with the separate FastAPI defined in `CogniBench/api/main.py`.
-* Instead, it functions as a direct frontend to the core evaluation logic. It imports necessary modules and functions directly from the `CogniBench/core/` package (e.g., `run_batch_evaluation_core` from `evaluation_runner.py`, `AppConfig` from `config.py`, various constants).
+* Instead, it functions as a direct frontend to the **synchronous** core evaluation logic. It imports necessary modules and functions directly from the `CogniBench/core/` package (e.g., `run_batch_evaluation_core` from `evaluation_runner.py`, `AppConfig` from `config.py`, various constants) and executes the evaluation workflow directly when batch mode is disabled in the configuration.
+* **It does not utilize the OpenAI Batch API or the associated scripts (`retrieve_batch_results.py`, `prepare_judging_batch.py`).** For details on running evaluations using the Batch API, refer to the main `README.md` and `backend_architecture.md`.
 
 **State Management (`st.session_state`):**
 
@@ -76,11 +77,11 @@ The application heavily utilizes `st.session_state` to maintain UI state across 
   * **Inputs:** Reads `st.session_state` for UI selections and uploaded file paths. Reads `BASE_CONFIG_PATH`. Uses `AVAILABLE_MODELS`, `AVAILABLE_*_TEMPLATES`, `DATA_DIR`.
   * **Outputs:** Returns an `AppConfig` object if configuration is valid and files are uploaded, otherwise `None`. Logs the generated output directory path.
 * **`start_core_evaluation()`:**
-  * **Purpose:** Initiates the backend evaluation in a separate thread. Calls `generate_run_config()`. If successful, clears OpenAI cache, sets status flags in `st.session_state`, creates and starts a `threading.Thread` targeting `evaluation_worker`.
-  * **Inputs:** Reads `st.session_state`. Calls `generate_run_config()`.
-  * **Outputs:** Updates `st.session_state` (running status, thread objects, etc.). Starts the background thread. Renders status messages.
+  * **Purpose:** Initiates the **synchronous** backend evaluation in a separate thread. Calls `generate_run_config()`. If successful (and batch mode is disabled in the loaded config), clears OpenAI cache, sets status flags in `st.session_state`, creates and starts a `threading.Thread` targeting `evaluation_worker`. If batch mode is enabled in the config, it should ideally prevent the run from starting via the UI or show a message indicating batch mode must be run via CLI scripts.
+  * **Inputs:** Reads `st.session_state`. Calls `generate_run_config()`. Checks `config.batch_settings.enabled`.
+  * **Outputs:** Updates `st.session_state` (running status, thread objects, etc.). Starts the background thread for synchronous runs. Renders status messages.
 * **`evaluation_worker(...)`:**
-  * **Purpose:** Function executed by the background thread. Calls `run_batch_evaluation_core`. Uses queues (`output_queue`) to communicate status, logs (filtered), and results back to the main thread. Handles exceptions. Sets `newly_completed_run_folder` on success.
+  * **Purpose:** Function executed by the background thread for **synchronous** runs. Calls `run_batch_evaluation_core` (which internally checks that batch mode is disabled). Uses queues (`output_queue`) to communicate status, logs (filtered), and results back to the main thread. Handles exceptions. Sets `newly_completed_run_folder` on success.
   * **Inputs:** `app_config: AppConfig`, `output_queue: queue.Queue`, `stop_event: threading.Event`.
   * **Outputs:** Puts status messages, filtered logs, and final result paths into the `output_queue`. Updates `st.session_state.evaluation_results_paths` and `st.session_state.newly_completed_run_folder` (indirectly via queue).
 * **`render_evaluation_progress()` (in "Run Evaluation" tab):**
@@ -133,4 +134,4 @@ The application heavily utilizes `st.session_state` to maintain UI state across 
 
 **Conclusion:**
 
-The `cognibench_agent` provides a dedicated Streamlit interface for managing CogniBench evaluations via two main tabs: "Run Evaluation" for configuration and execution, and "View Results" for detailed analysis and comparison of completed runs. It directly leverages the project's core Python modules.
+The `cognibench_agent` provides a dedicated Streamlit interface for managing **synchronous** CogniBench evaluations via two main tabs: "Run Evaluation" for configuration and execution, and "View Results" for detailed analysis and comparison of completed runs. It directly leverages the project's core Python modules but does not support the asynchronous Batch API workflow.

@@ -256,12 +256,13 @@ def _check_trivial_justification(
     Returns:
         The criterion name if its justification is flagged as potentially trivial, otherwise None.
     """
-    # Use attribute access for ConsistencyChecks object
-    if getattr(consistency_checks, "enable_trivial_justification_check", True):
-        trivial_length_threshold = getattr(
-            consistency_checks,
+    # Use dictionary access for consistency_checks dict
+    if consistency_checks.get(
+        "enable_trivial_justification_check", True
+    ):  # Default True if key missing
+        trivial_length_threshold = consistency_checks.get(
             "trivial_justification_length_threshold",
-            MIN_JUSTIFICATION_LENGTH,
+            MIN_JUSTIFICATION_LENGTH,  # Default constant if key missing
         )
         if (
             score_norm in ["no", "partial"]
@@ -296,12 +297,19 @@ def _determine_aggregated_score(
     final_score: AggregatedScore
 
     # Logic: Fail if any 'no', Partial if any 'partial' (and no 'no'), Pass if all 'yes'.
-    # Use attribute access for AggregationRules object
-    if aggregation_rules.fail_if_any_no and "no" in scores_found:
+    # Use dictionary access for aggregation_rules dict
+    if (
+        aggregation_rules.get("fail_if_any_no", True) and "no" in scores_found
+    ):  # Default True if key missing
         final_score = "Fail"
-    elif aggregation_rules.partial_if_any_partial and "partial" in scores_found:
+    elif (
+        aggregation_rules.get("partial_if_any_partial", True)
+        and "partial" in scores_found
+    ):  # Default True if key missing
         final_score = "Partial"
-    elif aggregation_rules.pass_if_all_yes and all(
+    elif aggregation_rules.get(
+        "pass_if_all_yes", True
+    ) and all(  # Default True if key missing
         s == "yes" for s in scores_found
     ):  # Assuming scores_found only contains 'yes', 'no', 'partial' after normalization
         final_score = "Pass"
@@ -340,26 +348,18 @@ def aggregate_scores(
         - 'needs_human_review': Boolean flag.
         - 'review_reasons': List of strings explaining review flags.
     """
-    # Use attribute access for AppConfig object
-    aggregation_settings = getattr(config, "aggregation_settings", None)
-    aggregation_rules = (
-        getattr(aggregation_settings, "aggregation_rules", None)
-        if aggregation_settings
-        else None
-    )
-    consistency_checks = (
-        getattr(aggregation_settings, "consistency_checks", None)
-        if aggregation_settings
-        else None
-    )
+    # Use dictionary access for config dict
+    aggregation_settings = config.get(
+        "aggregation_settings", {}
+    )  # Default to empty dict
+    aggregation_rules = aggregation_settings.get(
+        "aggregation_rules", {}
+    )  # Default to empty dict
+    consistency_checks = aggregation_settings.get(
+        "consistency_checks", {}
+    )  # Default to empty dict
 
-    # Provide default empty objects if settings are missing (though validation should prevent this)
-    if aggregation_rules is None:
-        # Or use default AggregationRules model
-        aggregation_rules = {}
-    if consistency_checks is None:
-        # Or use default ConsistencyChecks model
-        consistency_checks = {}
+    # Defaults are now handled by .get(), no need for separate checks/assignments
 
     results: Dict[str, Any] = {
         "aggregated_score": "Fail",  # Default to Fail
@@ -402,7 +402,7 @@ def aggregate_scores(
 
             scores_found.append(score_norm)
 
-            # Check for trivial justification
+            # Check for trivial justification (pass consistency_checks dict)
             trivial_criterion = _check_trivial_justification(
                 criterion, score_norm, justification, consistency_checks
             )

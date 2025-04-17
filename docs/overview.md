@@ -25,14 +25,14 @@
 The system follows a pipeline/workflow architecture:
 
 ```mermaid
- graph LR
+ graph TD
 
    subgraph CogniBench System
      direction LR
 
      %% Core Workflow Components
      A[Input Data Intake] --> B(Preprocessing: Normalization);
-     B --> C["Evaluation Core (LLM Judge)"];
+     B --> C["Evaluation Core (LLM Judge / Batch API)"];
      C --> D[Post-processing & Aggregation];
      D --> E[Output Generation];
      D --> LOG["Enhanced Logging"];
@@ -40,19 +40,32 @@ The system follows a pipeline/workflow architecture:
      D --> SYMPY["Improved SymPy Parsing"];
 
      %% Data Storage & Logging
-     F["Data Storage (data/, logs/)"] <--> A;
+     F["Data Storage (data/, logs/, batch_intermediate_data/)"] <--> A;
      F <--> E;
-     %% G is now Core Runner
+     F <--> SB[Submit Structuring Batch];
+     F <--> RJ[Retrieve Judging Results];
      LOG["Log Storage (.log)"] <--> G;
+     LOG <--> SB;
+     LOG <--> RS[Retrieve Structuring Results];
+     LOG <--> PJ[Prepare Judging Batch];
+     LOG <--> RJ;
 
-     %% Orchestration & UI
-     %% Renamed G
-     G["Core Runner (evaluation_runner.py)"] -- Manages --> A;
-     G -- Calls --> C;
-     G -- Manages --> D;
-     G -- Manages --> E;
-     %% UI triggers Core Runner directly
-     I["Streamlit UI (app.py)"] -- Triggers --> G;
+     %% Orchestration & UI / Scripts
+     subgraph "Execution Modes"
+       direction TB
+       G["Core Runner (evaluation_runner.py)"] -- Sync Mode --> C;
+       G -- Sync Mode --> D;
+       G -- Sync Mode --> E;
+       I["Streamlit UI (app.py)"] -- Triggers --> G;
+
+       SB["Script: run_batch_evaluation.py"] -- Batch Mode --> C;
+       RS["Script: retrieve_batch_results.py (Structuring)"] -- Batch Mode --> C;
+       PJ["Script: prepare_judging_batch.py"] -- Batch Mode --> C;
+       RJ["Script: retrieve_batch_results.py (Judging)"] -- Batch Mode --> C;
+       RJ -- Batch Mode --> D;
+       RJ -- Batch Mode --> E;
+     end
+
      I -- Reads Results --> F;
      I -- Uses --> CM[Global COLOR_MAP Constant];
 
@@ -66,10 +79,10 @@ The system follows a pipeline/workflow architecture:
      end
 
      %% Evaluation Core Details
-     subgraph "Evaluation Core (LLM Judge)"
+     subgraph "Evaluation Core (LLM Judge / Batch API)"
          direction LR
-         C1[Prompt Constructor] --> C2(Judge LLM Invocation);
-         C2 --> C3[Response Parser];
+         C1[Prompt Constructor] --> C2["Judge LLM Invocation (Sync / Batch Submit)"];
+         C2 --> C3["Response Parser / Batch Result Retrieval"];
          C1 -- Uses --> JP[Judging Prompt];
          C1 -- Uses --> SP[Structuring Prompt];
      end
@@ -84,25 +97,32 @@ The system follows a pipeline/workflow architecture:
      style SYMPY fill:#90caf9,stroke:#333,stroke-width:2px
      style C fill:#64b5f6,stroke:#333,stroke-width:2px
      style H fill:#4db6ac,stroke:#333,stroke-width:1px,stroke-dasharray: 5 5
-     %% Core Runner
-     style G fill:#ffca28,stroke:#333,stroke-width:2px 
-     %% Streamlit UI
+     %% Core Runner & UI
+     style G fill:#ffca28,stroke:#333,stroke-width:2px
      style I fill:#a5d6a7,stroke:#333,stroke-width:2px
      style CM fill:#ff7043,stroke:#333,stroke-width:1px
      style UI1 fill:#81c784,stroke:#333,stroke-width:1px
      style UI2 fill:#81c784,stroke:#333,stroke-width:1px
      style UI3 fill:#81c784,stroke:#333,stroke-width:1px
      style UI4 fill:#81c784,stroke:#333,stroke-width:1px
+     %% Batch Scripts
+     style SB fill:#ffe082,stroke:#333,stroke-width:1px
+     style RS fill:#ffe082,stroke:#333,stroke-width:1px
+     style PJ fill:#ffe082,stroke:#333,stroke-width:1px
+     style RJ fill:#ffe082,stroke:#333,stroke-width:1px
+     %% Prompts
      style JP fill:#4fc3f7,stroke:#333,stroke-width:1px
      style SP fill:#4fc3f7,stroke:#333,stroke-width:1px
    end
  ```
 
- *Note: This diagram shows the main components and their relationships. The Streamlit UI now interacts directly with the Core Runner (`evaluation_runner.py`), bypassing the batch script for execution.*
+*Note: This diagram shows the main components and their relationships. The system supports two main execution modes: Synchronous (via Streamlit UI or `run_batch_evaluation.py` with batch disabled) and Asynchronous Batch API (via sequential execution of scripts as documented in the README).*
 
-## 4. Detailed Workflow (Streamlit UI)
+## 4. Detailed Workflows
 
-The following diagram illustrates the sequence of operations when using the Streamlit UI:
+### 4.1 Synchronous Workflow (Streamlit UI or Batch Disabled)
+
+The following diagram illustrates the sequence of operations when using the Streamlit UI or running `run_batch_evaluation.py` with `batch_settings.enabled: false` in `config.yaml`:
 
 ```mermaid
  sequenceDiagram
@@ -170,6 +190,34 @@ The following diagram illustrates the sequence of operations when using the Stre
      UI-->>-User: Confirmation
  ```
 
+### 4.2 Asynchronous Batch API Workflow
+
+When `batch_settings.enabled: true` is set in `config.yaml`, the evaluation process requires manual execution of several scripts in sequence, as the OpenAI Batch API calls are asynchronous and can take time (up to 24 hours).
+
+**Step 1: Submit Structuring Batch**
+*   **Script:** `scripts/run_batch_evaluation.py`
+*   **Action:** Reads input data, generates all structuring requests, submits them as a single batch job to OpenAI.
+*   **Output:** Logs a **Structuring Batch ID**. Saves intermediate data mapping request IDs to original data in `batch_intermediate_data/`.
+
+**Step 2: Wait for Structuring Batch Completion**
+*   **Action:** User monitors the batch job status via OpenAI's dashboard or waits.
+
+**Step 3: Retrieve Structuring Results & Submit Judging Batch**
+*   **Script 1:** `scripts/retrieve_batch_results.py --stage structuring`
+*   **Action:** Uses the Structuring Batch ID to check status, download results upon completion, parse results, map them to intermediate data, handle errors, and save the combined structured output (e.g., `structured_output.json`).
+*   **Script 2:** `scripts/prepare_judging_batch.py`
+*   **Action:** Reads the structured output file, generates all judging requests, submits them as a single batch job to OpenAI.
+*   **Output:** Logs a **Judging Batch ID**.
+
+**Step 4: Wait for Judging Batch Completion**
+*   **Action:** User monitors the batch job status via OpenAI's dashboard or waits.
+
+**Step 5: Retrieve Judging Results & Finalize**
+*   **Script:** `scripts/retrieve_batch_results.py --stage judging`
+*   **Action:** Uses the Judging Batch ID to check status, download results upon completion, parse results, map them, perform post-processing (parsing judge output, final answer verification, scoring), and save the final evaluation results (e.g., to `final_results.jsonl`).
+
+*(Refer to `README.md` for detailed command examples).*
+
 ## 5. Component Breakdown
 
 * **A. Input Data Intake (Conceptual - Handled by `scripts/run_single_evaluation.py`):**
@@ -184,10 +232,10 @@ The following diagram illustrates the sequence of operations when using the Stre
     * *(Removed)* Model Final Answer Extraction (Regex): Previously done via regex patterns. This step is **removed**; the **Structuring LLM** is now solely responsible for identifying and extracting the `final_answer` from the model's response during the structuring phase.
     * *(Future) Response Segmentation:* (Not currently implemented) Could break down responses into logical sections.
     * *(Future) Sanitization:* (Not currently implemented) Could remove sensitive content if needed.
-* **C. Evaluation Core (LLM Judge):**
-  * **Function:** Performs the core evaluation using a powerful Judge LLM based on the L1 rubric.
+* **C. Evaluation Core (LLM Judge / Batch API):**
+  * **Function:** Performs the core evaluation using a powerful Judge LLM based on the L1 rubric, either via synchronous calls or by preparing/retrieving asynchronous Batch API jobs.
   * **C1. Prompt Constructor:**
-    * Dynamically builds the prompt for the Judge LLM.
+    * Dynamically builds the prompt payload (messages, model, parameters) for the Structuring and Judging LLMs.
     * **Key Contents:**
       * **System Message/Instructions:** Define the role ("You are an expert mathematician evaluating an AI's solution..."), the task (evaluate based on the rubric), the required output format (e.g., JSON with Yes/No and Justification for each L1 parameter).
       * **The L1 Rubric:** Embed the full definition of each L1 parameter and its L2 subcomponents, including the Yes/No criteria and examples of failures.
@@ -198,16 +246,13 @@ The following diagram illustrates the sequence of operations when using the Stre
         * *(Optional)* Yes/No judgments for L2 subcomponents.
         * Identification of specific errors (calculation, logical fallacy, misinterpreted constraint, etc.).
     * **Strategy:** May require multiple sequential prompts (e.g., one prompt per L1 parameter) or a single complex prompt. Experimentation needed. Single complex prompt is often preferred if context window allows, for better holistic understanding.
-  * **C2. Judge LLM Invocation:**
-    * Sends the constructed prompt to the chosen Judge LLM API (e.g., OpenAI API, Claude API, Gemini API).
-    * Recommended temperature setting is explicitly `0.0` to ensure deterministic, consistent, and reproducible outputs for rigorous evaluations.
-    * Handles API parameters (model selection, temperature setting, max tokens, potential use of Function Calling/Tool Use or JSON mode).
-    * Manages retries and error handling for API calls.
-    * **Logging:** Logs initiation of structuring and judging calls with task/model IDs and model names (e.g., `STRUCTURING_CALL: ...`, `JUDGING_CALL: ...`).
-  * **C3. Response Parser:**
-    * Receives the raw output from the Judge LLM.
-    * Parses the output to extract the structured evaluation data (Yes/No scores, justifications for each L1 parameter).
-    * Validates the structure and completeness of the parsed data against the expected format (criteria and scores defined in `config.yaml`). Handles cases where the LLM fails to adhere to the format, reporting all validation errors found.
+  * **C2. Judge LLM Invocation (Sync / Batch Submit):**
+    * **Synchronous Mode:** Sends the constructed prompt payload directly to the chosen LLM API (e.g., OpenAI API via `openai_client.py`). Handles retries and errors.
+    * **Batch Mode:** Prepares request dictionaries (including `custom_id`, `method`, `url`, `body`) for structuring and judging. Uses `batch_processor.py` to format requests into JSONL, upload the file, and create the batch job via the OpenAI API. Logs the submitted Batch ID.
+    * **Logging:** Logs initiation of synchronous structuring/judging calls or batch job submissions.
+  * **C3. Response Parser / Batch Result Retrieval:**
+    * **Synchronous Mode:** Receives the raw output from the LLM API call. Parses the output (e.g., using `_parse_json_string`, `parse_judge_response`) to extract structured data. Validates against expected format.
+    * **Batch Mode:** Uses `batch_processor.py` and `retrieve_batch_results.py` to poll for batch completion, download the result file (JSONL), parse each line, handle per-request errors reported in the results, and map results back using intermediate data.
 * **D. Post-processing & Aggregation:**
   * **Function:** Refines and aggregates the raw evaluation results.
   * **Sub-Tasks:**
@@ -231,10 +276,12 @@ The following diagram illustrates the sequence of operations when using the Stre
     * `logs/YYYYMMDD_HHMM/`: Timestamped directory for each run. Contains detailed execution information (DEBUG level and above), including specific logs for structuring and judging call initiation. Console output is typically limited to WARNING level and above, plus `tqdm` progress bars.
       * `backend.log`: Logs from core scripts, API, batch processing, etc.
       * `streamlit.log`: Logs specifically from the Streamlit UI operations.
-* **G. Workflow Orchestrator:**
-  * **Function:** Manages the execution flow of the pipeline steps (A -> B -> C -> D -> E).
-  * **Technology:** Python scripts (`scripts/run_batch_evaluation.py`, `scripts/run_single_evaluation.py`). `run_batch_evaluation.py` orchestrates the end-to-end process including ingestion and evaluation steps.
-  * **Features:** Manages execution flow, handles file paths, calls component scripts (ingestion, evaluation), aggregates final results, manages logging configuration via `core/log_setup.py`. Includes configuration validation at startup.
+* **G. Workflow Orchestrator / Scripts:**
+  * **Function:** Manages the execution flow depending on the mode.
+  * **Technology:**
+    * **Synchronous:** `core/evaluation_runner.py` (called by Streamlit UI or `scripts/run_batch_evaluation.py` with batch disabled) manages the A -> B -> C -> D -> E flow directly.
+    * **Batch API:** Requires manual execution of sequential scripts: `scripts/run_batch_evaluation.py` (Submit Structuring) -> `scripts/retrieve_batch_results.py` (Retrieve Structuring) -> `scripts/prepare_judging_batch.py` (Submit Judging) -> `scripts/retrieve_batch_results.py` (Retrieve Judging & Finalize).
+  * **Features:** Handles file paths, configuration loading/validation, logging setup (`core/log_setup.py`), and calls core logic (`core/workflow.py`, `core/batch_processor.py`, etc.).
 * **H. API Layer:**
   * **Function:** Provides an external interface to submit evaluation requests and retrieve results.
   * **Technology:** RESTful API using frameworks like FastAPI, Flask (Python), or Node.js/Express.
@@ -244,15 +291,18 @@ The following diagram illustrates the sequence of operations when using the Stre
 
 ## 6. Data Flow
 
-1. User/System submits evaluation data via `API Layer`.
-2. `API Layer` triggers `Workflow Orchestrator`, passing data to `Input Data Intake`.
-3. `Input Data Intake` validates and stores raw data in `Data Storage`, passes data to `Preprocessing`.
-4. `Preprocessing` cleans, extracts answer, segments data, passes prepared data to `Evaluation Core`.
-5. `Evaluation Core` (`Prompt Constructor` -> `Judge LLM Invocation` -> `Response Parser`) performs the rubric-based assessment, generating raw evaluation results.
-6. Raw evaluation passed to `Post-processing & Aggregation`.
-7. `Post-processing` verifies final answer, aggregates scores, flags issues, passes final structured data to `Output Generation`.
-8. `Output Generation` creates report formats (JSON, MD) and stores them in `Data Storage`.
-9. `API Layer` retrieves the final report from `Data Storage` or the orchestrator upon request (`GET /evaluate/{job_id}`).
+**Synchronous Mode:**
+1. User triggers evaluation (via UI or script).
+2. `evaluation_runner.py` loads data, calls `workflow.py`.
+3. `workflow.py` preprocesses, calls LLM Client for structuring, calls LLM Client for judging, parses results, post-processes, and saves results via `output_writer.py` to `Data Storage`.
+
+**Batch API Mode:**
+1. User runs `run_batch_evaluation.py`. Script loads data, generates structuring requests, calls `batch_processor.py` to submit batch job, saves intermediate data map to `Data Storage`. Logs Structuring Batch ID.
+2. **(Wait)** User waits for batch completion.
+3. User runs `retrieve_batch_results.py --stage structuring`. Script calls `batch_processor.py` to check status, download & parse results. Loads intermediate map from `Data Storage`. Maps results and saves structured output to `Data Storage`.
+4. User runs `prepare_judging_batch.py`. Script loads structured output from `Data Storage`, generates judging requests, calls `batch_processor.py` to submit batch job. Logs Judging Batch ID.
+5. **(Wait)** User waits for batch completion.
+6. User runs `retrieve_batch_results.py --stage judging`. Script calls `batch_processor.py` to check status, download & parse results. Loads intermediate map. Maps results. Calls `workflow.py` functions for post-processing. Calls `output_writer.py` to save final results to `Data Storage`.
 
 ## 7. Technology Stack Choices (Example)
 
@@ -273,11 +323,18 @@ The following diagram illustrates the sequence of operations when using the Stre
 * **Structured Output:** Relying on LLMs for structured output (JSON) is crucial but not foolproof. Robust parsing, validation (checking required criteria/scores from config), and comprehensive error reporting are implemented. Function Calling/Tool Use could further improve reliability.
 * **Consistency:** LLM outputs can vary. Use `temperature=0`. Consider running evaluations multiple times (e.g., 2 out of 3 agreement) for critical assessments, although this increases cost.
 * **Human-in-the-Loop:** *Essential.* Implement a review interface for experts to validate/correct Judge LLM outputs, especially during initial calibration and for ambiguous cases. This feedback loop is crucial for improving prompts and potentially fine-tuning the judge model in the future.
-* **Scalability:** Design for asynchronous processing using the orchestrator and potentially scale Judge LLM invocations horizontally.
-* **Context Window Limitations:** Advanced math solutions can be long. Ensure the Judge LLM has a sufficient context window. If not, strategies like breaking down the evaluation per step or using abstracted summaries might be needed (but risk losing fidelity).
-* **Cost Management:** Monitor LLM API usage closely. Explore caching identical requests (if applicable). Potentially use smaller/cheaper models for simpler preprocessing tasks (like answer extraction).
+* **Scalability:**
+   * **Synchronous:** Limited by sequential processing.
+   * **Batch API:** Significantly more scalable due to parallel processing by OpenAI and higher rate limits. Handles large datasets efficiently.
+* **Asynchronicity (Batch Mode):** Requires users to manage a multi-step process with potentially long waiting periods between steps. Requires careful tracking of Batch IDs.
+* **State Management (Batch Mode):** Intermediate data (mapping `custom_id` to original data) must be reliably saved and loaded between script executions. Currently stored in JSON files in `batch_intermediate_data/`.
+* **Error Handling:**
+   * **Synchronous:** Handled via retries within the LLM client.
+   * **Batch API:** Requires handling batch-level failures (e.g., invalid input file) and per-request errors reported in the results file. The `retrieve_batch_results.py` script implements checks for per-request errors.
+* **Context Window Limitations:** Applies to both modes. Ensure the chosen LLM has sufficient context window.
+* **Cost Management:** Batch API offers significant cost savings (50% discount) compared to standard synchronous calls, making large-scale evaluations more feasible. Caching identical structuring requests (especially for ideal responses) is implemented.
 * **Rubric Evolution:** The evaluation rubric (expected criteria, allowed scores) is now defined in `config.yaml`, making it easier to modify without code changes. The prompt template path is also configured. The judging and structuring prompts have been updated to align precisely with these rubric criteria, ensuring consistency and accuracy in evaluations.
-* **Security:** If handling sensitive/proprietary prompts or model outputs, ensure appropriate data handling, access controls, and potentially use models with stronger data privacy guarantees (e.g., Azure OpenAI).
+* **Security:** If handling sensitive/proprietary prompts or model outputs, ensure appropriate data handling, access controls, and potentially use models with stronger data privacy guarantees (e.g., Azure OpenAI). Applies to both modes.
 
 ## 9. Future Enhancements
 

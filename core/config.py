@@ -15,7 +15,8 @@ from pathlib import Path
 from typing import Any, List, Optional, Union
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import (BaseModel, Field, ValidationError, field_validator,
+                      model_validator)
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +211,35 @@ class OutputOptions(BaseModel):
     # Note: The output directory will be created if it doesn't exist.
 
 
+class BatchSettings(BaseModel):
+    """Configuration for OpenAI Batch API processing."""
+
+    enabled: bool = Field(
+        False, description="Enable or disable the use of the Batch API."
+    )
+    poll_interval_seconds: int = Field(
+        30, description="Interval in seconds between polling for batch job status."
+    )
+    max_poll_attempts: int = Field(
+        480, description="Maximum number of polling attempts before timeout."
+    )
+    intermediate_data_dir: str = Field(
+        "./batch_intermediate_data",
+        description="Directory for storing intermediate batch files.",
+    )
+
+    @field_validator("intermediate_data_dir")
+    @classmethod
+    def check_intermediate_dir(cls, v: str) -> str:
+        """Ensure the intermediate directory path is valid (but don't create it here)."""
+        # Basic validation, actual creation might happen elsewhere
+        try:
+            _ = Path(v)  # Check if it's a valid path format
+        except Exception as e:
+            raise ValueError(f"Invalid intermediate_data_dir path format: {v} ({e})")
+        return v
+
+
 class AppConfig(BaseModel):
     """Root model for the application configuration."""
 
@@ -220,6 +250,10 @@ class AppConfig(BaseModel):
     human_review_settings: HumanReviewSettings
     aggregation_settings: AggregationSettings
     output_options: OutputOptions
+    # Add the new batch settings section, making it optional
+    batch_settings: Optional[BatchSettings] = Field(
+        None, description="Configuration for batch processing (e.g., OpenAI Batch API)."
+    )
 
     # Apply environment variable substitution to the whole dict after initial loading
     # This handles variables in nested structures beyond just api_key
