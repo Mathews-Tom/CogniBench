@@ -678,15 +678,23 @@ def format_score(score_value):
 @st.cache_data(show_spinner="Loading results data...")  # Re-enabled caching
 def load_and_process_results(
     selected_folders: List[str],
-) -> Tuple[Optional[pd.DataFrame], Optional[Dict[str, Any]]]:
-    """Loads data from _final_results.json files, processes into a DataFrame, and aggregates summary statistics."""
+) -> Tuple[
+    Optional[pd.DataFrame], Optional[Dict[str, Any]], Optional[Dict[str, Any]]
+]:  # Added original_summary to return type
+    """
+    Loads data from _final_results.json files, processes into a DataFrame,
+    returns the DataFrame, the original summary from the first file,
+    and optionally calculated summary statistics.
+    """
     all_results_data = []
     processed_files_count = 0
+    original_summary = None  # Initialize variable to store the first summary found
     logger.info(f"Loading results from selected folders: {selected_folders}")
 
     if not selected_folders:
         logger.warning("No result folders selected for loading.")
-        return None, None
+        # Return None for df and calculated_summary, and None for original_summary
+        return None, None, None
 
     for folder_path_str in selected_folders:
         folder_path = Path(folder_path_str)
@@ -701,6 +709,18 @@ def load_and_process_results(
         try:
             with open(results_file, "r") as f:
                 data = json.load(f)
+                # --- Store the original summary from the first valid file ---
+                if original_summary is None:  # Only store the first one encountered
+                    file_summary = data.get("summary")
+                    if isinstance(file_summary, dict):
+                        original_summary = file_summary
+                        logger.info(f"Stored original summary from {results_file.name}")
+                    else:
+                        logger.warning(
+                            f"'summary' key missing or not a dict in {results_file.name}"
+                        )
+                # --- End original summary storage ---
+
                 # Add folder name (run identifier) to each record
                 run_identifier = folder_path.name
                 # Check if 'results' key exists and is a list
@@ -880,7 +900,8 @@ def load_and_process_results(
     # --- After processing all folders ---
     if not all_results_data:
         logger.warning("No valid records found in any processed files.")
-        return None, None  # Return None if no data was successfully appended
+        # Return None for df and calculated_summary, but return original_summary if found
+        return None, None, original_summary
 
     # Convert collected data to DataFrame
     try:
@@ -915,13 +936,15 @@ def load_and_process_results(
             # Add more stats as needed...
             logger.info(f"Calculated summary statistics: {summary_stats}")
 
-        return results_df, summary_stats
+        # Return df, calculated_summary, and original_summary
+        return results_df, summary_stats, original_summary
 
     except Exception as e:
         logger.error(
             f"Error creating DataFrame or calculating stats: {e}", exc_info=True
         )
-        return None, None  # Return None if DataFrame creation fails
+        # Return None for df and calculated_summary, but return original_summary if found
+        return None, None, original_summary
 
     # --- Aggregated Summary Calculation ---
     total_evaluations = len(results_df)
@@ -1049,59 +1072,86 @@ def render_results_selector():
         st.session_state.selected_results_folders = []  # Clear selection
 
 
-def display_summary_stats(summary_data: Dict[str, Any]):
-    """Displays the aggregated summary statistics."""
-    st.subheader("📈 Evaluation Summary")
-    if not summary_data:
-        st.warning("No summary data available.")
+def display_summary_stats(original_summary: Optional[Dict[str, Any]]):
+    """Displays the summary statistics directly from the results file."""
+    st.subheader("📈 Evaluation Summary (from File)")  # Updated title
+    if not original_summary or not isinstance(original_summary, dict):
+        st.warning("No summary data available from the results file.")
         return
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Evaluations Processed", summary_data.get("total_evaluations", 0))
-    col2.metric("Tasks Flagged for Review", summary_data.get("needs_review_count", 0))
-    col3.metric("Result Folders Analyzed", summary_data.get("processed_files", 0))
+    # Define keys that are typically displayed as top-level metrics
+    metric_keys = [
+        "total_tasks_processed",
+        "total_evaluations_processed",
+        "total_structuring_api_calls",
+        "total_judging_api_calls",
+        "total_evaluation_time_seconds",
+        "average_time_per_task_seconds",
+        "average_time_per_evaluation_seconds",
+    ]
 
-    st.write("**Score Distribution:**")
-    pass_fail_counts = summary_data.get("pass_fail_counts", {})
-    if pass_fail_counts:
-        # Convert counts to DataFrame for easier display
-        score_df = pd.DataFrame(
-            pass_fail_counts.items(), columns=["Aggregated Score", "Count"]
-        ).sort_values(by="Aggregated Score")
-        st.dataframe(score_df, hide_index=True)
+    # Create columns for metrics - adjust number as needed
+    cols = st.columns(3)
+    col_idx = 0
 
-        # Optional: Plot score distribution
-        try:
-            fig = px.pie(
-                score_df,
-                values="Count",
-                names="Aggregated Score",
-                title="Aggregated Score Distribution",
-                color="Aggregated Score",
-                color_discrete_map=COLOR_MAP,  # Use defined color map
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        except Exception as e:
-            st.warning(f"Could not generate score distribution plot: {e}")
-            logger.warning(f"Plotly error for score distribution: {e}")
+    # Display metrics first
+    for key in metric_keys:
+        if key in original_summary:
+            value = original_summary[key]
+            label = key.replace("_", " ").title()
+            # Format time values
+            if "time_seconds" in key and isinstance(value, (int, float)):
+                try:
+                    # Format as H:MM:SS if large enough, otherwise show seconds
+                    if value >= 3600:
+                        display_value = str(timedelta(seconds=int(value)))
+                    elif value >= 1:
+                        display_value = f"{value:.2f} s"
+                    else:
+                        display_value = (
+                            f"{value:.3f} s"  # Higher precision for small times
+                        )
+                except Exception:
+                    display_value = f"{value:.2f}"  # Fallback formatting
+            elif isinstance(value, float):
+                display_value = f"{value:.2f}"
+            else:
+                display_value = f"{value:,}"  # Add commas for large integers
 
-    else:
-        st.info("No aggregated score data available for distribution.")
+            cols[col_idx % len(cols)].metric(label, display_value)
+            col_idx += 1
 
-    # Display average numeric rubric scores if available
-    avg_scores = summary_data.get("average_numeric_rubric_scores", {})
-    if avg_scores:
-        st.write("**Average Numeric Rubric Scores:**")
-        avg_df = pd.DataFrame(avg_scores.items(), columns=["Rubric", "Average Score"])
-        # Format rubric names
-        avg_df["Rubric"] = (
-            avg_df["Rubric"]
-            .str.replace("judge_rubric_", "")
-            .str.replace("_score", "")
-            .str.replace("_", " ")
-            .str.title()
-        )
-        st.dataframe(avg_df.round(2), hide_index=True)  # Round for display
+    # Display other keys
+    other_items = {k: v for k, v in original_summary.items() if k not in metric_keys}
+    if other_items:
+        st.markdown("---")  # Separator
+        st.write("**Additional Summary Details:**")
+        for key, value in other_items.items():
+            label = key.replace("_", " ").title()
+            if key == "average_time_per_model_seconds" and isinstance(value, dict):
+                st.write(f"**{label}:**")
+                if value:  # Check if dictionary is not empty
+                    markdown_list = ""
+                    for model_id, avg_time in value.items():
+                        try:
+                            # Format time nicely
+                            formatted_time = f"{float(avg_time):.2f} s"
+                        except (ValueError, TypeError):
+                            formatted_time = str(avg_time)  # Fallback
+                        markdown_list += f"- `{model_id}`: {formatted_time}\n"
+                    st.markdown(markdown_list)
+                else:
+                    st.markdown("*No model-specific time data available.*")
+            elif key == "models_evaluated" and isinstance(value, list):
+                st.write(f"**{label}:** {', '.join(value)}")
+            elif isinstance(value, dict):
+                with st.expander(f"{label} (Details)"):
+                    st.json(value)
+            elif isinstance(value, list):
+                with st.expander(f"{label} (List)"):
+                    st.write(value)
+            else:
+                st.write(f"**{label}:** {value}")
 
 
 def display_performance_plots(df: pd.DataFrame):
@@ -1833,28 +1883,22 @@ def render_evaluation_progress(
         status_text = "Finished (Unknown Status)"  # Clarified status
         progress_value = 0
 
-    # Display Status ABOVE the progress bar and time
-    # Use the dedicated placeholder if it's meant ONLY for status, otherwise use st.info/st.error etc.
-    # Assuming output_placeholder is primarily for status messages
+    # Display Status and Elapsed Time together
+    status_col, time_col = output_placeholder.columns(
+        [3, 1]
+    )  # Use placeholder's columns
     if st.session_state.evaluation_error:
-        output_placeholder.error(f"Status: {status_text}")
+        status_col.error(f"Status: {status_text}")
     else:
-        output_placeholder.info(f"Status: {status_text}")
+        status_col.info(f"Status: {status_text}")
+    time_col.metric("Elapsed Time", st.session_state.eval_duration_str)
 
-    # Use columns for Progress Bar and Elapsed Time side-by-side BELOW status
-    col_progress, col_time = st.columns([3, 1])
+    # Display Progress Bar BELOW status/time
+    progress_placeholder.progress(
+        progress_value, text="Evaluation Progress"
+    )  # Add text label
 
-    with col_progress:
-        # Use the dedicated placeholder if it's meant ONLY for progress bar
-        progress_placeholder.progress(
-            progress_value, text="Evaluation Progress"
-        )  # Add text label
-
-    with col_time:
-        # Use st.metric directly in the column
-        st.metric("Elapsed Time", st.session_state.eval_duration_str)
-
-    # --- Live Log Output (Collapsible) ---
+    # --- Live Log Output (Collapsible) --- Filtered for INFO
     # Expander is now controlled by evaluation_running state
     log_expander = log_placeholder.expander(
         "Live Evaluation Output", expanded=st.session_state.evaluation_running
@@ -1930,9 +1974,29 @@ def render_evaluation_progress(
                     break
             elif message.startswith("LOG:"):
                 log_entry = message.split(":", 1)[1].strip()
-                st.session_state.last_run_output.append(log_entry)
-            else:  # Assume it's a log message if no prefix
-                st.session_state.last_run_output.append(message)
+                # Filter out DEBUG logs
+                if " - DEBUG - " not in log_entry:
+                    # Attempt to strip prefix for cleaner display (optional)
+                    message_to_display = log_entry
+                    try:
+                        # Find the level marker (e.g., " - INFO - ", " - WARNING - ", " - ERROR - ")
+                        parts = log_entry.split(" - ", 3)
+                        if (
+                            len(parts) > 3
+                        ):  # If format is TIMESTAMP - LOGGER - LEVEL - MESSAGE
+                            message_to_display = parts[3]
+                        else:  # Fallback if format is different, find last ' - ' after timestamp/logger
+                            parts = log_entry.split(" - ", 2)
+                            if len(parts) > 2:
+                                message_to_display = parts[
+                                    2
+                                ]  # Assume message starts after second ' - '
+                    except Exception:
+                        pass  # Keep original log_entry if splitting fails
+
+                    st.session_state.last_run_output.append(message_to_display)
+
+            # Ignore DEBUG messages implicitly
 
         except queue.Empty:
             break  # No more messages for now
@@ -1984,11 +2048,17 @@ def main() -> None:
             # Load data based on selection
             # Use a separate cache key or disable caching if selection changes often
             # For simplicity, keeping the cache as is for now.
-            results_df, summary_data = load_and_process_results(
+            # Unpack all three return values
+            results_df, calculated_summary, original_summary = load_and_process_results(
                 st.session_state.selected_results_folders
             )
-            st.session_state.results_df = results_df  # Store in session state
-            st.session_state.aggregated_summary = summary_data
+            st.session_state.results_df = results_df  # Store DataFrame
+            st.session_state.aggregated_summary = (
+                calculated_summary  # Store calculated summary
+            )
+            st.session_state.original_file_summary = (
+                original_summary  # Store original summary
+            )
 
             if results_df is not None:
                 # Display sections using inner tabs within the "View Results" tab
@@ -2002,7 +2072,10 @@ def main() -> None:
                 )
 
                 with tab_summary:
-                    display_summary_stats(summary_data)
+                    # Pass only the original summary from the file
+                    display_summary_stats(
+                        original_summary=st.session_state.original_file_summary
+                    )
 
                 with tab_plots:
                     display_performance_plots(results_df)

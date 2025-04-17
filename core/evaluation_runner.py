@@ -590,7 +590,7 @@ def run_batch_evaluation_core(
                     raise  # Re-raise
 
             # --- 5. Combine Ingested Data and Formatted Evaluations ---
-            logger.info("Starting final result aggregation phase.") # Added log
+            logger.info("Starting final result aggregation phase.")  # Added log
             logger.info(
                 "  Combining ingested data with formatted evaluation results..."
             )
@@ -642,7 +642,9 @@ def run_batch_evaluation_core(
 
             # Added logs for JSONL path and record count
             logger.info(f"Aggregating results read from: {eval_jsonl_path}")
-            logger.info(f"Total evaluation records loaded for aggregation: {len(formatted_evaluations_list)}")
+            logger.info(
+                f"Total evaluation records loaded for aggregation: {len(formatted_evaluations_list)}"
+            )
             # End added logs
 
             logger.info(
@@ -871,7 +873,9 @@ def run_batch_evaluation_core(
 
             # --- Calculate Final Summary Statistics ---
             num_tasks = len(grouped_results_map)
-            logger.info(f"Identified {num_tasks} unique task IDs after grouping.") # Added log
+            logger.info(
+                f"Identified {num_tasks} unique task IDs after grouping."
+            )  # Added log
             avg_time_per_task = total_eval_time / num_tasks if num_tasks > 0 else 0.0
             avg_time_per_evaluation = (
                 total_eval_time / total_evaluations_processed
@@ -903,10 +907,14 @@ def run_batch_evaluation_core(
             final_output = {"summary": summary_stats, "results": final_results_list}
 
             # --- Save Final Combined Results ---
-            logger.info(f"Writing final aggregated results to: {final_results_path}") # Added log
+            logger.info(
+                f"Writing final aggregated results to: {final_results_path}"
+            )  # Added log
             with final_results_path.open("w", encoding="utf-8") as outfile:
                 json.dump(final_output, outfile, indent=2, ensure_ascii=False)
-            logger.info(f"Successfully wrote final results file: {final_results_path}") # Added log (modified existing one slightly for clarity)
+            logger.info(
+                f"Successfully wrote final results file: {final_results_path}"
+            )  # Added log (modified existing one slightly for clarity)
             # logger.info( # Original log commented out for clarity, replaced above
             #     f"  Successfully combined results and wrote final output with summary to {final_results_path}"
             # )
