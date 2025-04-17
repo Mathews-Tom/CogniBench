@@ -994,9 +994,11 @@ def render_results_selector():
         all_folders = [
             d for d in DATA_DIR.iterdir() if d.is_dir() and not d.name.startswith(".")
         ]
-        # Sort folders by name (often includes timestamp)
-        all_folders.sort(key=lambda x: x.name, reverse=True)  # Show newest first
-        folder_options = {d.name: str(d) for d in all_folders}
+        # Sort folders by modification time (newest first)
+        all_folders.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+        folder_options = {
+            d.name: str(d) for d in all_folders
+        }  # Keep name as key for display
 
         if not folder_options:
             # *** MODIFIED: Removed sidebar reference ***
@@ -1424,7 +1426,10 @@ def display_results_table(df: pd.DataFrame):
     selected_model = col_filter1.selectbox("Model ID:", model_options)
 
     # Filter by Aggregated Score
-    score_options = ["All"] + sorted(df["aggregated_score"].unique())
+    # Get unique scores, filter out None, convert to string, then sort
+    unique_scores = df["aggregated_score"].unique()
+    filtered_scores = [str(score) for score in unique_scores if score is not None]
+    score_options = ["All"] + sorted(filtered_scores)
     selected_scores = col_filter2.multiselect(
         "Aggregated Score(s):", score_options, default=["All"]
     )
