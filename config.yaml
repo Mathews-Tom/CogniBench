@@ -73,3 +73,16 @@ aggregation_settings:
 output_options:
   # Path to the file where the final evaluation results will be written (usually JSON).
   results_file: "data/evaluation_results.json" # Example path
+
+# --- Batch Processing Settings ---
+# Configures the OpenAI Batch API usage.
+batch_settings:
+  # Enable or disable the use of the Batch API for processing evaluations.
+  # If false, evaluations will run sequentially or using standard API calls.
+  enabled: false
+  # Interval in seconds between polling attempts to check the status of a submitted batch job.
+  poll_interval_seconds: 30
+  # Maximum number of times to poll for batch job completion before timing out.
+  max_poll_attempts: 480 # (e.g., 480 attempts * 30 seconds = 4 hours)
+  # Directory where intermediate batch files (input, output, errors) will be stored.
+  intermediate_data_dir: "./batch_intermediate_data"
