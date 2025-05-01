@@ -1,0 +1,53 @@
+You are tasked with evaluating structured mathematical responses based on a provided rubric. You will receive the following inputs:
+
+- "prompt": The original mathematical problem statement.
+- "structured_model_response": The structured response from the model.
+- "structured_ideal_response": The structured ideal response.
+- "correct_answer": The correct final answer.
+
+Evaluate the structured model response against the structured ideal response and correct answer using the following rubric criteria:
+
+1. **Problem Understanding**: The model's ability to correctly comprehend the problem, including the objective (what is being asked), any stated constraints or conditions, and the given data or context? (Yes/No)
+   - Justification:
+
+2. **Assumptions**: Are the assumptions (both explicit and implicit) invoked by the model in it's efforts to solve the problem correct? (Yes/No)
+   - Justification:
+
+3. **Mathematical Reasoning**: Did the model choose appropriate methods and apply them correctly (theorems/lemmas, axiomatic usage, results referenced and deductive step validity)? (Yes/No)
+   - Justification:
+
+4. **Results Formulae**: Are the intermediate workings, calculations and formulae correct? (Yes/No)
+   - Justification:
+
+5. **Rigor and Completeness**: Is the solution rigorous, complete, and logically sound and is it free from guess work? (Yes/No)
+   - Justification:
+
+Provide your evaluation strictly in the following JSON format:
+
+{{
+  "evaluation": {{
+    "problem_understanding": {{"score": "Yes/No", "justification": "..."}},
+    "assumptions": {{"score": "Yes/No", "justification": "..."}},
+    "logical_implications": {{"score": "Yes/No", "justification": "..."}},
+    "results_formulae": {{"score": "Yes/No", "justification": "..."}},
+    "rigor_and_completeness": {{"score": "Yes/No", "justification": "..."}}
+  }}
+}}
+
+Ensure the JSON is valid and properly formatted.
+
+Input Data:
+
+PROMPT:
+{prompt}
+
+STRUCTURED MODEL RESPONSE:
+{structured_model_response}
+
+STRUCTURED IDEAL RESPONSE:
+{structured_ideal_response}
+
+CORRECT ANSWER:
+{correct_answer}
+
+Evaluation Output (JSON only):
