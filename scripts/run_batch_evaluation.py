@@ -103,6 +103,16 @@ def main() -> None:
         action="store_true",
         help="Use structured responses (ideal and model) if available during evaluation.",
     )
+    parser.add_argument(
+        "--judging-prompt",
+        type=Path,
+        help="Optional: Path to the judging prompt template file. Overrides config.yaml setting.",
+    )
+    parser.add_argument(
+        "--structuring-prompt",
+        type=Path,
+        help="Optional: Path to the structuring prompt template file. Overrides config.yaml setting.",
+    )
     # Add argument for log level if desired
     # parser.add_argument(
     #     "--log-level",
@@ -157,6 +167,14 @@ def main() -> None:
     except OSError as e:
         logger.error(f"Failed to create output directory {batch_output_dir}: {e}")
         sys.exit(1)
+
+    # --- Override Config with Command-Line Arguments if provided ---
+    if args.judging_prompt:
+        logger.info(f"Overriding judging prompt from config with: {args.judging_prompt}")
+        config_obj.evaluation_settings.prompt_template = str(args.judging_prompt)
+    if args.structuring_prompt:
+        logger.info(f"Overriding structuring prompt from config with: {args.structuring_prompt}")
+        config_obj.structuring_settings.prompt_template = str(args.structuring_prompt)
 
     # --- Step 1: Ingestion ---
     logger.info("--- Starting Step 1: Ingestion ---")

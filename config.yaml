@@ -36,7 +36,7 @@ evaluation_settings:
   # This can be the same as or different from the model used for generating responses.
   judge_model: gpt-4o
   # Path to the text file containing the prompt template used to instruct the judge model.
-  prompt_template: "prompts/judging/Math-L1-Judging-v1.0.txt" # Updated to correct template path
+  prompt_template: "prompts/judging/Math-L1-Judging-v2.0.txt" # Updated to correct template path
   # List of criteria names expected in the judge LLM's JSON output (under 'evaluation').
   # The parser will validate against these (case-insensitive matching).
   expected_criteria:
