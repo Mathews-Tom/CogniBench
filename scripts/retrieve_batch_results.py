@@ -25,9 +25,14 @@ parent_dir = os.path.dirname(script_dir)
 sys.path.append(parent_dir)
 
 # Import core components
-from core.batch_processor import (check_batch_status,
-                                  download_batch_result_file,
-                                  parse_batch_result_file)
+from core.batch_processor import (
+    check_batch_status,
+    create_batch_job,
+    download_batch_result_file,
+    format_requests_to_jsonl,
+    parse_batch_result_file,
+    upload_batch_file,
+)
 from core.config import load_config  # Needed for post-processing parameters
 from core.llm_clients.openai_client import OpenAIClient
 from core.output_writer import save_evaluation_result  # Added for final saving
@@ -499,150 +504,68 @@ async def main():
                 final_item_result["postprocessing_status"] = (
                     "success"  # Add status for this stage
                 )
-
-                # --- Task 29: Integrate final output saving ---
-                try:
-                    evaluation_id = f"eval_{uuid.uuid4()}"
-                    # Use directory of the final results file for individual .jsonl outputs
-                    output_dir = os.path.dirname(args.output_path)
-                    if (
-                        not output_dir
-                    ):  # Handle case where output path is just a filename
-                        output_dir = "."
-                    # Ensure the directory exists for saving individual results
-                    os.makedirs(output_dir, exist_ok=True)
-
-                    # Gather arguments for save_evaluation_result
-                    save_args = {
-                        "evaluation_id": evaluation_id,
-                        "task_id": item.get("task_id"),
-                        "model_id": item.get("model_id"),
-                        "prompt_text": item.get("prompt_text"),
-                        # Original model response before structuring/judging
-                        "raw_model_response": item.get("raw_model_response"),
-                        "structured_response": final_item_result.get(
-                            "structured_response"
-                        ),
-                        "ideal_response": item.get("ideal_response"),
-                        "correct_final_answer": item.get("correct_final_answer"),
-                        # May not be present from intermediate data
-                        "structuring_prompt_template_path": item.get(
-                            "structuring_prompt_template_path"
-                        ),
-                        # May not be present
-                        "structuring_llm_model": item.get("structuring_llm_model"),
-                        "judge_prompt_template_path": config.get("evaluation", {})
-                        .get("judging", {})
-                        .get("prompt_template_path"),
-                        "judge_llm_model": config.get("evaluation", {})
-                        .get("judging", {})
-                        .get("model"),
-                        "parsed_scores": final_item_result.get("parsed_scores"),
-                        "final_score": final_item_result.get("final_score"),
-                        "reasoning": final_item_result.get("reasoning"),
-                        "is_met": final_item_result.get("is_met"),
-                        "is_flagged": final_item_result.get("is_flagged"),
-                        # Errors from judging post-processing
-                        "errors": final_item_result.get("errors"),
-                        # Not tracked in this script
-                        "structuring_api_calls": 0,
-                        # Not tracked in this script
-                        "judging_api_calls": 0,
-                        # Not tracked in this script
-                        "total_time_seconds": 0.0,
-                        # Save to the directory derived from output_path
-                        "output_jsonl_path": output_dir,
-                        # Include batch error if any (though we skip saving if status is error)
-                        "batch_error": item.get("batch_error"),
-                    }
-
-                    # Call the saving function
-                    save_status = save_evaluation_result(**save_args)
-
-                    if save_status.get("success"):
-                        logger.info(
-                            f"Successfully saved final evaluation for item {custom_id} (Eval ID: {evaluation_id}) to {output_dir}"
-                        )
-                        final_item_result["final_save_status"] = "success"
-                        final_item_result["evaluation_id"] = evaluation_id
-                    else:
-                        logger.error(
-                            f"Failed to save final evaluation for item {custom_id} (Eval ID: {evaluation_id}). Error: {save_status.get('error')}"
-                        )
-                        final_item_result["final_save_status"] = "failed"
-                        final_item_result["final_save_error"] = save_status.get("error")
-
-                except Exception as save_exc:
-                    logger.error(
-                        f"Unexpected error during final evaluation saving for item {custom_id}: {save_exc}",
-                        exc_info=True,
-                    )
-                    final_item_result["final_save_status"] = "exception"
-                    final_item_result["final_save_error"] = str(save_exc)
-                # --- End Task 29 ---
+                # Add a unique evaluation ID
+                final_item_result["evaluation_id"] = f"eval_{uuid.uuid4()}"
 
                 final_results.append(final_item_result)
                 items_processed += 1
 
-            except (
-                Exception
-            ) as e:  # Catches errors from process_judging_output or data validation
+            except Exception as e:
                 logger.error(
-                    f"Error during judging post-processing for item {custom_id}: {e}",
-                    exc_info=True,  # Include traceback for debugging
+                    f"Post-processing failed for item {custom_id}: {e}", exc_info=True
                 )
-                # Append original item but mark post-processing as failed
-                final_item_result = (
-                    item.copy()
-                )  # Use the same variable name for consistency
-                final_item_result["postprocessing_status"] = (
-                    "error"  # Or "exception" depending on error type if needed
-                )
-                final_item_result["postprocessing_error"] = str(e)
-                final_item_result["final_save_status"] = (
-                    "skipped"  # Skipped saving due to postprocessing error
-                )
-                final_results.append(final_item_result)
+                # Append original item with post-processing error status to final results
+                item["postprocessing_status"] = "error"
+                item["postprocessing_error"] = str(e)
+                final_results.append(item)
                 items_postprocessing_failed += 1
+                continue  # Continue to the next item
 
-        logger.info(f"Judging post-processing complete:")
-        logger.info(f"  - Items successfully processed: {items_processed}")
         logger.info(
-            f"  - Items skipped due to batch error: {items_skipped_due_to_error}"
+            f"Judging post-processing complete. Processed {items_processed} items."
         )
-        logger.info(
-            f"  - Items failed during post-processing: {items_postprocessing_failed}"
-        )
-        logger.info(f"  - Total items in final list: {len(final_results)}")
+        if items_skipped_due_to_error > 0:
+            logger.warning(
+                f"Skipped {items_skipped_due_to_error} items due to initial batch errors."
+            )
+        if items_postprocessing_failed > 0:
+            logger.warning(
+                f"Post-processing failed for {items_postprocessing_failed} items."
+            )
 
-        # Final results (including save status) are now collected in final_results.
-        # We still might want to save the *list* of results to the specified output path
-        # for a consolidated view, even though individual items are saved to jsonl.
-        logger.info(
-            f"Attempting to save consolidated judging results summary to {args.output_path}"
-        )
+        # Save the final combined results
+        logger.info(f"Saving final judging results to: {args.output_path}")
         try:
+            # Ensure the output directory exists
             output_dir = os.path.dirname(args.output_path)
-            if output_dir:
+            if output_dir:  # Only create if path includes a directory
                 os.makedirs(output_dir, exist_ok=True)
-            with open(args.output_path, "w") as f:
-                json.dump(final_results, f, indent=4)
+                logger.info(f"Ensured output directory exists: {output_dir}")
+
+            # Write the final results to the output file
+            save_evaluation_result(
+                final_results, args.output_path
+            )  # Use the helper function
             logger.info(
-                f"Successfully saved consolidated judging results summary to {args.output_path}"
-            )
-        except Exception as final_save_exc:
-            logger.error(
-                f"Failed to save consolidated judging results summary to {args.output_path}: {final_save_exc}"
+                f"Successfully saved final judging results to {args.output_path}"
             )
 
-    else:
-        # This case should not be reachable due to argparse choices, but good practice
-        logger.critical(f"Invalid stage '{args.stage}' provided. Exiting.")
-        sys.exit(1)  # Exit with an error code for invalid stage
+        except OSError as e:
+            logger.critical(f"Error creating output directory {output_dir}: {e}")
+            sys.exit(1)  # Exit if directory creation fails
+        except IOError as e:
+            logger.critical(
+                f"Error writing final judging results to file {args.output_path}: {e}"
+            )
+            sys.exit(1)  # Exit if file writing fails
+        except Exception as e:
+            logger.critical(
+                f"An unexpected error occurred during saving final results: {e}"
+            )
+            sys.exit(1)  # Exit on unexpected errors during saving
 
-    logger.info("Batch result retrieval process finished.")
+    logger.info("Batch result retrieval and processing finished.")
 
 
 if __name__ == "__main__":
     asyncio.run(main())
-    # Removed duplicate asyncio.run(main()) call

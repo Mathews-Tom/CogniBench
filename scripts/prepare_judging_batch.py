@@ -10,27 +10,42 @@ and submits a new batch job to the OpenAI Batch API for judging.
 
 import argparse
 import asyncio
-import json
+import json  # Added for intermediate data loading
 import logging
 import os
 import sys
+import time  # Added for polling delay
+import uuid  # Added for evaluation ID generation
 
 # Adjust path to import core modules
+# This might need refinement based on actual project structure
 script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(script_dir)
 sys.path.append(parent_dir)
 
 # Import core components
-from core.batch_processor import (create_batch_job, format_requests_to_jsonl,
-                                  upload_batch_file)
-from core.config import load_config
+from core.batch_processor import (
+    check_batch_status,
+    create_batch_job,
+    download_batch_result_file,
+    format_requests_to_jsonl,
+    parse_batch_result_file,
+    upload_batch_file,
+)
+from core.config import load_config  # Needed for post-processing parameters
 from core.llm_clients.openai_client import OpenAIClient
-from core.prompt_templates import load_prompt_template
+from core.output_writer import save_evaluation_result  # Added for final saving
+from core.prompt_templates import load_prompt_template  # Added missing import
+from core.workflow import process_judging_output  # Needed for judging stage
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# Constants for polling
+POLLING_INTERVAL_SECONDS = 30
+MAX_POLLING_ATTEMPTS = 480  # e.g., 480 * 30s = 4 hours
 
 
 async def main():
@@ -51,15 +66,22 @@ async def main():
         help="Path to the configuration file (default: ./config.yaml).",
     )
     # Add other arguments as needed later, e.g., output directory
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="./batch_intermediate_data",  # Default to intermediate data dir
+        help="Directory to save the judging batch request file and intermediate data.",
+    )
     args = parser.parse_args()
     logger.info("Starting judging batch preparation...")
     logger.info(f"Loading structured input from: {args.structured_input}")
     logger.info(f"Using configuration file: {args.config_file}")
+    logger.info(f"Saving intermediate files to: {args.output_dir}")
 
     # --- Load Config and Judge Prompt Template ---
     try:
         config = load_config(args.config_file)
-        judge_config = config.get("judging", {})
+        judge_config = config.get("evaluation", {}).get("judging", {})  # Corrected path
         judge_model = judge_config.get("model")
         judge_prompt_template_path = judge_config.get("prompt_template_path")
         judge_temperature = judge_config.get(
@@ -68,7 +90,7 @@ async def main():
 
         if not judge_model or not judge_prompt_template_path:
             logger.critical(
-                "Judge model or prompt template path not found in config file under 'judging' section."
+                "Judge model or prompt template path not found in config file under 'evaluation.judging' section."
             )
             return
 
@@ -129,9 +151,9 @@ async def main():
 
     # --- Generate Judging Requests ---
     judging_requests = []
+    intermediate_data_map = {}  # To store mapping from custom_id to original item data
     skipped_items_count = 0
     logger.info("Generating judging requests...")
-
     for item in structured_items:
         try:
             # Assuming structure added in Task 19/22 includes results like this:
@@ -270,6 +292,9 @@ async def main():
             }
             judging_requests.append(batch_request)
 
+            # Store original item data mapped by custom_id for later retrieval
+            intermediate_data_map[custom_id] = item
+
         except Exception as e:
             logger.error(
                 f"Unexpected error processing item {item.get('task_id', 'UNKNOWN')}_{item.get('model_id', 'UNKNOWN')}: {e}",
@@ -284,6 +309,30 @@ async def main():
             f"Skipped {skipped_items_count} items due to errors or failed structuring."
         )
 
+    # --- Save Intermediate Data Map ---
+    # Save the mapping from custom_id to original item data
+    intermediate_data_dir = args.output_dir  # Use the specified output directory
+    os.makedirs(intermediate_data_dir, exist_ok=True)
+    intermediate_file_name = (
+        f"intermediate_data_{int(time.time())}.json"  # Use timestamp for uniqueness
+    )
+    intermediate_data_path = os.path.join(intermediate_data_dir, intermediate_file_name)
+
+    try:
+        with open(intermediate_data_path, "w") as f:
+            json.dump(intermediate_data_map, f, indent=4)
+        logger.info(f"Saved intermediate data map to: {intermediate_data_path}")
+    except IOError as e:
+        logger.error(
+            f"Error saving intermediate data map to {intermediate_data_path}: {e}"
+        )
+        # Decide if this is a critical error or just a warning
+        # For now, log and continue, but batch retrieval might fail later
+    except Exception as e:
+        logger.error(
+            f"An unexpected error occurred while saving intermediate data map: {e}"
+        )
+
     # --- Submit Judging Batch ---
     batch_id = None
     if not judging_requests:
@@ -294,15 +343,45 @@ async def main():
         try:
             logger.info("Formatting requests to JSONL...")
             jsonl_content = format_requests_to_jsonl(judging_requests)
+
+            # Save the JSONL content to a file in the intermediate data directory
+            batch_request_file_name = f"judging_batch_requests_{int(time.time())}.jsonl"
+            batch_request_file_path = os.path.join(
+                intermediate_data_dir, batch_request_file_name
+            )
+            try:
+                with open(batch_request_file_path, "w", encoding="utf-8") as f:
+                    f.write(jsonl_content)
+                logger.info(
+                    f"Saved judging batch request file to: {batch_request_file_path}"
+                )
+            except IOError as e:
+                logger.error(
+                    f"Error saving judging batch request file to {batch_request_file_path}: {e}"
+                )
+                # Decide if this is critical - probably yes, as upload will fail
+                return
+            except Exception as e:
+                logger.error(
+                    f"An unexpected error occurred while saving batch request file: {e}"
+                )
+                return
+
             logger.info("Uploading batch file...")
-            file_id = await upload_batch_file(openai_client, jsonl_content)
+            # Upload the saved file
+            file_id = await upload_batch_file(openai_client, batch_request_file_path)
 
             if file_id:
                 logger.info(f"Batch file uploaded successfully. File ID: {file_id}")
                 logger.info("Creating batch job...")
-                batch_id = await create_batch_job(openai_client, file_id)
-                if batch_id:
+                batch_job = await create_batch_job(
+                    openai_client, file_id
+                )  # Use batch_job variable
+                if batch_job:  # Check if batch_job is not None
+                    batch_id = batch_job.id  # Extract batch_id from the returned object
                     logger.info(f"Batch job created successfully. Batch ID: {batch_id}")
+                    # Print the batch ID for the next script to use
+                    print(f"BATCH_ID:{batch_id}")
                 else:
                     logger.error("Failed to create batch job.")
             else:
@@ -315,8 +394,9 @@ async def main():
 
     if not batch_id:  # Check if batch_id is still None after the try block
         logger.warning("Judging batch job submission failed or was skipped.")
-
-    logger.info("Judging batch preparation process finished.")
+        sys.exit(1)  # Exit with error code if batch submission failed
+    else:
+        sys.exit(0)  # Exit with success code if batch submission was initiated
 
 
 if __name__ == "__main__":

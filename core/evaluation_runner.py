@@ -17,19 +17,25 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+# External libraries
+from tqdm import tqdm
+
 # Use ABSOLUTE imports for all core modules
-from core.batch_processor import (create_batch_job, format_requests_to_jsonl,
-                                  upload_batch_file)
+from core.batch_processor import (
+    create_batch_job,
+    format_requests_to_jsonl,
+    upload_batch_file,
+)
 from core.config import AppConfig
 from core.llm_clients.openai_client import OpenAIClient
+
 # Removed incorrect import of calculate_summary_statistics, combine_and_save_results,
 # and format_evaluation_results from output_writer as they are not defined there.
 # Functionality might need review if these were intended to be used.
-from core.postprocessing import \
-    perform_postprocessing  # Changed to correct function name
+from core.postprocessing import (
+    perform_postprocessing,  # Changed to correct function name
+)
 from core.workflow import run_evaluation_workflow
-# External libraries
-from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -735,6 +741,18 @@ async def run_batch_evaluation_core(  # Changed to async def
                             for model in models_evaluated
                         }
 
+                        # Get structuring/judging model from config (should be named 'config' in this scope)
+                        structuring_model = None
+                        judging_model = None
+                        try:
+                            structuring_model = getattr(config.structuring_settings.llm_client, "model", None)
+                        except Exception:
+                            structuring_model = None
+                        try:
+                            judging_model = getattr(config.evaluation_settings.llm_client, "model", None)
+                        except Exception:
+                            judging_model = None
+
                         summary = {
                             "batch_id": cleaned_stem,  # Use cleaned stem as batch identifier
                             "total_tasks_processed": len(evaluation_tasks),
@@ -750,6 +768,8 @@ async def run_batch_evaluation_core(  # Changed to async def
                             ),
                             "average_time_per_model_seconds": avg_time_per_model,
                             "models_evaluated": sorted(list(models_evaluated)),
+                            "structuring_model": structuring_model or "N/A",
+                            "judging_model": judging_model or "N/A",
                         }
 
                         # --- 4d. Assemble and Save Final JSON (Revised Structure) ---

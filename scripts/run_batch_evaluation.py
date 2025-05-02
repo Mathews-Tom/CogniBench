@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# CogniBench/scripts/run_batch_evaluation.py
 """
 CogniBench Batch Evaluation Orchestration Script (Refactored).
 
@@ -170,10 +172,14 @@ def main() -> None:
 
     # --- Override Config with Command-Line Arguments if provided ---
     if args.judging_prompt:
-        logger.info(f"Overriding judging prompt from config with: {args.judging_prompt}")
+        logger.info(
+            f"Overriding judging prompt from config with: {args.judging_prompt}"
+        )
         config_obj.evaluation_settings.prompt_template = str(args.judging_prompt)
     if args.structuring_prompt:
-        logger.info(f"Overriding structuring prompt from config with: {args.structuring_prompt}")
+        logger.info(
+            f"Overriding structuring prompt from config with: {args.structuring_prompt}"
+        )
         config_obj.structuring_settings.prompt_template = str(args.structuring_prompt)
 
     # --- Step 1: Ingestion ---

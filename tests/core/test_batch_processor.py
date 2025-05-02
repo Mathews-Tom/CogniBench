@@ -7,12 +7,15 @@ from unittest.mock import MagicMock, call, mock_open, patch
 
 import pytest
 
-from CogniBench.core.batch_processor import (check_batch_status,
-                                             create_batch_job,
-                                             download_batch_result_file,
-                                             format_requests_to_jsonl,
-                                             parse_batch_result_file,
-                                             upload_batch_file)
+from CogniBench.core.batch_processor import (
+    check_batch_status,
+    create_batch_job,
+    download_batch_result_file,
+    format_requests_to_jsonl,
+    parse_batch_result_file,
+    upload_batch_file,
+)
+
 # Assuming OpenAIClient is importable and has the expected methods
 # Adjust the import path based on your project structure
 from CogniBench.core.llm_clients.openai_client import OpenAIClient
@@ -437,5 +440,3 @@ def test_parse_batch_result_file_missing_custom_id(caplog):
 
 
 # Add import for logging at the top if not already present
-# Add import for logging at the top if not already present
-import logging

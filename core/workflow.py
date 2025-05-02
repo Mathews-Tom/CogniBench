@@ -446,7 +446,7 @@ async def run_evaluation_workflow(  # Changed to async def
         judge_system_prompt = "You are an expert mathematician and rigorous evaluator assessing an AI model's response."
         llm_response = None
         logger.info(
-            "JUDGING_CALL: task_id=%s, model_id=%s, judge_model=%s",
+            "JUDGING_CALL: task_id=%s, model_id=%s, judging_model=%s",
             task_id,
             model_id,
             judge_llm_model,
