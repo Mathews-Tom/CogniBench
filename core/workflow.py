@@ -23,6 +23,8 @@ from .preprocessing import normalize_text_formats
 from .prompt_templates import load_prompt_template
 from .response_parser import parse_judge_response
 
+from scripts.validate_responses import validate_structuring_response, validate_judging_response
+
 logger = logging.getLogger("backend")
 
 DEFAULT_JUDGE_LLM_PROVIDER: str = "openai"
@@ -282,6 +284,19 @@ async def run_evaluation_workflow(  # Changed to async def
                         "model": structuring_model_name,
                         "response": parsed_model_response,
                     }
+                    # --- Validation: Structured Model Response ---
+                    validation_model = validate_structuring_response(
+                        parsed_model_response, norm_prompt_content
+                    )
+                    model_validation_failed = (
+                        any(v is False for k, v in validation_model.items() if k not in ["missing_fields", "red_flags"])
+                        or validation_model.get("missing_fields")
+                        or validation_model.get("red_flags")
+                    )
+                    if model_validation_failed:
+                        logger.warning(
+                            "Validation failed for structured model response: %s", validation_model
+                        )
                     break
                 logger.warning(
                     "Structuring (Model Response) attempt %d failed: %s",
@@ -373,6 +388,19 @@ async def run_evaluation_workflow(  # Changed to async def
                             "model": structuring_model_name,
                             "response": parsed_ideal_response,
                         }
+                        # --- Validation: Structured Ideal Response ---
+                        validation_ideal = validate_structuring_response(
+                            parsed_ideal_response, norm_prompt_content
+                        )
+                        ideal_validation_failed = (
+                            any(v is False for k, v in validation_ideal.items() if k not in ["missing_fields", "red_flags"])
+                            or validation_ideal.get("missing_fields")
+                            or validation_ideal.get("red_flags")
+                        )
+                        if ideal_validation_failed:
+                            logger.warning(
+                                "Validation failed for structured ideal response: %s", validation_ideal
+                            )
                         if structured_ideal_cache is not None and task_id is not None:
                             structured_ideal_cache[task_id] = (
                                 structured_ideal_response_obj
@@ -487,6 +515,30 @@ async def run_evaluation_workflow(  # Changed to async def
 
         total_time = time.time() - start_time
         evaluation_id = f"eval_{uuid.uuid4()}"
+
+        # --- Validation: Judging Model Response ---
+        validation_judging = validate_judging_response(
+            judging_processed_data.get("parsed_data", {}), norm_prompt_content
+        )
+        judging_validation_failed = (
+            any(v is False for k, v in validation_judging.items() if k not in ["missing_fields", "red_flags"])
+            or validation_judging.get("missing_fields")
+            or validation_judging.get("red_flags")
+        )
+        if judging_validation_failed:
+            logger.warning(
+                "Validation failed for judging model response: %s", validation_judging
+            )
+
+        # Aggregate validation results
+        validation_failed = {}
+        if 'model_validation_failed' in locals() and model_validation_failed:
+            validation_failed["structured_model_response"] = validation_model
+        if 'ideal_validation_failed' in locals() and ideal_validation_failed:
+            validation_failed["structured_ideal_response"] = validation_ideal
+        if judging_validation_failed:
+            validation_failed["judging_response"] = validation_judging
+
         save_status = finalize_and_save_evaluation(
             evaluation_id=evaluation_id,
             task_id=task_id,
@@ -509,11 +561,14 @@ async def run_evaluation_workflow(  # Changed to async def
                 eval_instance_id,
                 evaluation_id,
             )
-            return {
+            result_dict = {
                 "status": "success",
                 "evaluation_id": evaluation_id,
                 "result": save_status,
             }
+            if validation_failed:
+                result_dict["validation_failed"] = validation_failed
+            return result_dict
         else:
             msg = f"Failed to save evaluation result: {save_status.get('message', 'Unknown error') if save_status else 'Save function returned None'}"
             logger.error(msg)
