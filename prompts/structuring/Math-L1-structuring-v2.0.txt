@@ -49,6 +49,7 @@ Please return your output as a **strict JSON object** with the following fields:
 ## ⚠️ Instructions:
 
 * Always include all five fields, even if one is empty (use empty string or array).
+* If any of the following are missing from the solution, set their value to an empty string or array: "final_answer", "method", "assumptions".
 * Do not explain your reasoning.
 * Do not include any extra text, commentary, or Markdown.
 * Return only a **valid JSON object**, nothing else.

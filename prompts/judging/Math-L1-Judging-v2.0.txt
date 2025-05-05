@@ -15,26 +15,34 @@ Evaluate the structured model response against the structured ideal response and
 2. **Assumptions**: Are the assumptions (both explicit and implicit) invoked by the model in its efforts to solve the problem correct? (Yes/No)
    - Justification:
 
-3. **Mathematical Reasoning**: Did the model choose appropriate methods and apply them correctly (theorems/lemmas, axiomatic usage, results referenced and deductive step validity)? (Yes/No)
+3. **Logical Implications**: Are logical implications clearly identified and correctly applied? (Yes/No)
    - Justification:
 
-4. **Results Formulae**: Are the intermediate workings, calculations and formulae correct? (Yes/No)
+4. **Mathematical Reasoning**: Did the model choose appropriate methods and apply them correctly (theorems/lemmas, axiomatic usage, results referenced and deductive step validity)? (Yes/No)
    - Justification:
 
-5. **Rigor and Completeness**: Is the solution rigorous, complete, and logically sound and is it free from guess work? (Yes/No)
+5. **Results Formulae**: Are the intermediate workings, calculations and formulae correct? (Yes/No)
    - Justification:
 
-Provide your evaluation strictly in the following JSON format:
+6. **Rigor and Completeness**: Is the solution rigorous, complete, and logically sound and is it free from guess work? (Yes/No)
+   - Justification:
+
+Provide your evaluation strictly in the following JSON format.
+**You must always include all rubric criteria, and also include the following top-level fields: "final_answer", "method", and "assumptions" extracted from the model's response. If any are missing, set their value to null or an empty string.**
 
 ```json
 {{
   "evaluation": {{
     "problem_understanding": {{"score": "Yes/No", "justification": "..."}},
     "assumptions": {{"score": "Yes/No", "justification": "..."}},
+    "logical_implications": {{"score": "Yes/No", "justification": "..."}},
     "mathematical_reasoning": {{"score": "Yes/No", "justification": "..."}},
     "results_formulae": {{"score": "Yes/No", "justification": "..."}},
     "rigor_and_completeness": {{"score": "Yes/No", "justification": "..."}}
-  }}
+  }},
+  "final_answer": "...",
+  "method": "...",
+  "assumptions": "..."
 }}
 ````
 

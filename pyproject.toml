@@ -13,7 +13,7 @@ dependencies = [
     "pyyaml>=6.0", # Added for loading YAML config files
     "tqdm>=4.66.0", # Added for progress bars
     "watchdog>=6.0.0",
-    "antlr4-python3-runtime>=4.11",
+    "antlr4-python3-runtime==4.11",
     "sympy>=1.13.3",
     "plotly>=6.0.1",
     "pandas>=2.2.3",

@@ -101,7 +101,6 @@ def initialize_session_state():
         "temp_dir": None,
         "temp_dir_path": None,
         "uploaded_files_info": [],
-        "uploaded_files_info": [],
         "last_uploaded_files_key": None,
         "structuring_provider_select": list(AVAILABLE_MODELS.keys())[0],
         "structuring_api_key_input": "",
@@ -119,8 +118,6 @@ def initialize_session_state():
         "evaluation_running": False,
         "evaluation_results_paths": [],
         "last_run_output": [],
-        "evaluation_results_paths": [],
-        "last_run_output": [],
         "results_df": None,
         "aggregated_summary": None,
         "eval_start_time": None,
@@ -131,7 +128,6 @@ def initialize_session_state():
         "selected_results_folders": [],
         "config_complete": False,
         "evaluation_error": None,
-        "newly_completed_run_folder": None,
         "newly_completed_run_folder": None,
         "view_selected_task_id": None,
         "view_selected_model_id": None,
@@ -158,133 +154,112 @@ def initialize_session_state():
 # --- UI Rendering Functions ---
 
 
-def render_file_uploader():
-    """Renders the file uploader and saves uploaded files to temp dir."""
-    st.header("Upload Raw RLHF JSON Data file(s)")
-    uploaded_files = st.file_uploader(
-        "Select CogniBench JSON batch file(s)",
-        type=["json"],
-        accept_multiple_files=True,
-        help="Upload one or more JSON files containing tasks for evaluation.",
-        key="workflow_file_uploader",
-    )
-
-    if uploaded_files:
-        uploaded_file_names = [f.name for f in uploaded_files]
-        current_upload_key = tuple(sorted(uploaded_file_names))
-
-        if (
-            st.session_state.last_uploaded_files_key != current_upload_key
-            or not st.session_state.uploaded_files_info
-        ):
-            logger.info(f"Processing {len(uploaded_files)} uploaded files...")
-            st.session_state.uploaded_files_info = []
-            temp_dir = st.session_state.temp_dir_path
-            for uploaded_file in uploaded_files:
-                try:
-                    dest_path = temp_dir / uploaded_file.name
-                    with open(dest_path, "wb") as f:
-                        f.write(uploaded_file.getvalue())
-                    st.session_state.uploaded_files_info.append(
-                        {"name": uploaded_file.name, "path": str(dest_path)}
-                    )
-                    logger.info(f"Saved uploaded file to temporary path: {dest_path}")
-                except Exception as e:
-                    st.error(f"Error saving file {uploaded_file.name}: {e}")
-                    logger.error(f"Error saving file {uploaded_file.name}: {e}")
-
-            st.session_state.last_uploaded_files_key = current_upload_key
-            logger.info(
-                f"Finished processing uploads. {len(st.session_state.uploaded_files_info)} files ready."
-            )
-            st.rerun()
-
-        st.write(f"Using {len(st.session_state.uploaded_files_info)} uploaded file(s):")
-        for file_info in st.session_state.uploaded_files_info:
-            st.write(f"- {file_info['name']}")
-    else:
-        st.info("Please upload at least one batch file.")
-        if st.session_state.uploaded_files_info:
-            st.session_state.uploaded_files_info = []
-            st.session_state.last_uploaded_files_key = None
+# Import the modularized file uploader
+from cognibench_agent.ui_file_upload import render_file_uploader
 
 
 def render_config_ui():
     """Renders the configuration widgets for models and prompts."""
     st.header("Configure Models and Prompts")
+    st.markdown("---", unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div style='
+            background: linear-gradient(90deg, #1f77b4 0%, #4e54c8 100%);
+            color: #fff;
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1.05em;
+            margin-bottom: 8px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        '>
+            <span style='color:#ffe066;'>💡 Tip:</span> Configure your models and prompts below. Hover over the <span style='color:#ffe066;'>ℹ️</span> icons for help.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    with st.expander("Model Configurations", expanded=False):
+    with st.form("model_and_prompt_config_form"):
+        st.markdown(
+            "### <span style='color:#1f77b4;'>Model Configurations</span>",
+            unsafe_allow_html=True,
+        )
         col_structuring, col_judging = st.columns(2)
         with col_structuring:
-            st.subheader("Structuring Model")
-            st.selectbox(
+            st.markdown("**Structuring Model**")
+            struct_provider = st.selectbox(
                 "Provider",
-                options=list(AVAILABLE_MODELS.keys())[0],
+                options=list(AVAILABLE_MODELS.keys()),
                 key="structuring_provider_select",
+                help="Select the provider for the structuring model.",
             )
-            st.selectbox(
+            struct_model = st.selectbox(
                 "Model",
-                options=list(
-                    AVAILABLE_MODELS[
-                        st.session_state.structuring_provider_select
-                    ].keys()
-                ),
+                options=list(AVAILABLE_MODELS[struct_provider].keys()),
                 key="structuring_model_select",
+                help="Select the model for structuring.",
             )
             st.text_input(
                 "API Key (Optional)",
                 type="password",
                 placeholder="Leave blank to use environment variable",
                 key="structuring_api_key_input",
+                help="API key for structuring model (optional).",
             )
         with col_judging:
-            st.subheader("Judging Model")
-            st.selectbox(
+            st.markdown("**Judging Model**")
+            judge_provider = st.selectbox(
                 "Provider",
-                options=list(AVAILABLE_MODELS.keys())[0],
+                options=list(AVAILABLE_MODELS.keys()),
                 key="judging_provider_select",
+                help="Select the provider for the judging model.",
             )
-            st.selectbox(
+            judge_model = st.selectbox(
                 "Model",
-                options=list(
-                    AVAILABLE_MODELS[st.session_state.judging_provider_select].keys()
-                ),
+                options=list(AVAILABLE_MODELS[judge_provider].keys()),
                 key="judging_model_select",
+                help="Select the model for judging.",
             )
             st.text_input(
                 "API Key (Optional)",
                 type="password",
                 placeholder="Leave blank to use environment variable",
                 key="judging_api_key_input",
+                help="API key for judging model (optional).",
             )
 
-    with st.expander("Prompt Configurations", expanded=False):
+        st.markdown("---", unsafe_allow_html=True)
+        st.markdown(
+            "### <span style='color:#1f77b4;'>Prompt Configurations</span>",
+            unsafe_allow_html=True,
+        )
         col_prompt1, col_prompt2 = st.columns(2)
         with col_prompt1:
-            st.selectbox(
+            struct_prompt = st.selectbox(
                 "Structuring Prompt Template",
-                options=list(AVAILABLE_STRUCTURING_TEMPLATES.keys())[0]
+                options=list(AVAILABLE_STRUCTURING_TEMPLATES.keys())
                 if AVAILABLE_STRUCTURING_TEMPLATES
-                else None,
+                else [],
                 key="structuring_template_select",
-                help="Select the template file for structuring.",
+                help="Select the prompt template file for structuring.",
             )
-            if st.button("View Structuring Prompt"):
+            if st.form_submit_button("View Structuring Prompt"):
                 st.session_state.show_structuring = (
                     not st.session_state.show_structuring
                 )
         with col_prompt2:
-            st.selectbox(
+            judge_prompt = st.selectbox(
                 "Judging Prompt Template",
-                options=list(AVAILABLE_JUDGING_TEMPLATES.keys())[0]
+                options=list(AVAILABLE_JUDGING_TEMPLATES.keys())
                 if AVAILABLE_JUDGING_TEMPLATES
-                else None,
+                else [],
                 key="judging_template_select",
-                help="Select the template file for judging.",
+                help="Select the prompt template file for judging.",
             )
-            if st.button("View Judging Prompt"):
+            if st.form_submit_button("View Judging Prompt"):
                 st.session_state.show_judging = not st.session_state.show_judging
-        if st.button("View Base Config.yaml"):
+        if st.form_submit_button("View Base Config.yaml"):
             st.session_state.show_config = not st.session_state.show_config
 
     if (
@@ -507,7 +482,9 @@ def evaluation_worker(
             # Attach a StreamHandler to the root logger for console output
             root_logger = logging.getLogger()
             # Check if a StreamHandler is already present
-            has_stream = any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers)
+            has_stream = any(
+                isinstance(h, logging.StreamHandler) for h in root_logger.handlers
+            )
             if not has_stream:
                 stream_handler = logging.StreamHandler()
                 stream_handler.setFormatter(formatter)
@@ -569,35 +546,36 @@ def start_core_evaluation():
     if st.session_state.evaluation_running:
         st.warning("Evaluation is already in progress.")
         return
-    config = generate_run_config()
-    if not config:
-        st.error("Failed to start evaluation due to configuration errors.")
-        return
-    st.session_state.evaluation_running = True
-    st.session_state.last_run_output = []
-    st.session_state.evaluation_error = None
+    with st.spinner("Generating configuration and starting evaluation..."):
+        config = generate_run_config()
+        if not config:
+            st.error("Failed to start evaluation due to configuration errors.")
+            return
+        st.session_state.evaluation_running = True
+        st.session_state.last_run_output = []
+        st.session_state.evaluation_error = None
 
-    # Truncate last_run_output to last 200 lines at the start of each evaluation
-    if len(st.session_state.last_run_output) > 200:
-        st.session_state.last_run_output = st.session_state.last_run_output[-200:]
-    st.session_state.eval_start_time = time.time()
-    st.session_state.eval_duration_str = "Running..."
-    st.session_state.stop_event.clear()
-    st.session_state.newly_completed_run_folder = None
-    while not st.session_state.output_queue.empty():
-        try:
-            st.session_state.output_queue.get_nowait()
-        except queue.Empty:
-            break
-    st.session_state.worker_thread = threading.Thread(
-        target=evaluation_worker,
-        args=(config, st.session_state.output_queue, st.session_state.stop_event),
-        daemon=True,
-    )
-    st.session_state.worker_thread.start()
-    st.success("Evaluation started in the background.")
-    logger.info("Evaluation thread started.")
-    st.rerun()
+        # Truncate last_run_output to last 200 lines at the start of each evaluation
+        if len(st.session_state.last_run_output) > 200:
+            st.session_state.last_run_output = st.session_state.last_run_output[-200:]
+        st.session_state.eval_start_time = time.time()
+        st.session_state.eval_duration_str = "Running..."
+        st.session_state.stop_event.clear()
+        st.session_state.newly_completed_run_folder = None
+        while not st.session_state.output_queue.empty():
+            try:
+                st.session_state.output_queue.get_nowait()
+            except queue.Empty:
+                break
+        st.session_state.worker_thread = threading.Thread(
+            target=evaluation_worker,
+            args=(config, st.session_state.output_queue, st.session_state.stop_event),
+            daemon=True,
+        )
+        st.session_state.worker_thread.start()
+        st.success("Evaluation started in the background.")
+        logger.info("Evaluation thread started.")
+        st.rerun()
 
 
 def stop_evaluation():
@@ -1006,7 +984,9 @@ def display_performance_plots(df: pd.DataFrame):
             y="count",
             title=chart_title,
             color="score",
-            color_discrete_map={k: COLOR_MAP[k] for k in present_scores if k in COLOR_MAP},
+            color_discrete_map={
+                k: COLOR_MAP[k] for k in present_scores if k in COLOR_MAP
+            },
             labels={"score": "Aggregated Score", "count": "Number of Evaluations"},
         )
         fig_perf.update_layout(xaxis_title=None)
@@ -1024,7 +1004,8 @@ def display_performance_plots(df: pd.DataFrame):
             # Group by model_id and count occurrences of each aggregated_score
             # Exclude None/empty values
             filtered_df = df[
-                df["aggregated_score"].notna() & (df["aggregated_score"].astype(str) != "")
+                df["aggregated_score"].notna()
+                & (df["aggregated_score"].astype(str) != "")
             ]
             rubric_model_counts = (
                 filtered_df.groupby("model_id")["aggregated_score"]
@@ -1052,7 +1033,9 @@ def display_performance_plots(df: pd.DataFrame):
                 color="score",
                 title=chart_title,
                 barmode="group",
-                color_discrete_map={k: COLOR_MAP[k] for k in score_order if k in COLOR_MAP},
+                color_discrete_map={
+                    k: COLOR_MAP[k] for k in score_order if k in COLOR_MAP
+                },
                 labels={
                     "model_id": "Model ID",
                     "count": "Number of Evaluations",
@@ -1121,13 +1104,28 @@ def display_performance_plots(df: pd.DataFrame):
             if selected_rubric == "All Rubrics":
                 # Only use present, non-empty, non-null models, rubrics, and scores
                 all_models = sorted(
-                    rubric_long_df["model_id"].dropna().astype(str).replace("", pd.NA).dropna().unique()
+                    rubric_long_df["model_id"]
+                    .dropna()
+                    .astype(str)
+                    .replace("", pd.NA)
+                    .dropna()
+                    .unique()
                 )
                 all_rubrics = sorted(
-                    rubric_long_df["rubric"].dropna().astype(str).replace("", pd.NA).dropna().unique()
+                    rubric_long_df["rubric"]
+                    .dropna()
+                    .astype(str)
+                    .replace("", pd.NA)
+                    .dropna()
+                    .unique()
                 )
                 all_scores = sorted(
-                    rubric_long_df["rubric_score"].dropna().astype(str).replace("", pd.NA).dropna().unique()
+                    rubric_long_df["rubric_score"]
+                    .dropna()
+                    .astype(str)
+                    .replace("", pd.NA)
+                    .dropna()
+                    .unique()
                 )
 
                 # Group and count only present combinations
@@ -1150,7 +1148,9 @@ def display_performance_plots(df: pd.DataFrame):
                         "rubric": all_rubrics,
                         "rubric_score": all_scores,
                     },
-                    color_discrete_map={k: COLOR_MAP[k] for k in all_scores if k in COLOR_MAP},
+                    color_discrete_map={
+                        k: COLOR_MAP[k] for k in all_scores if k in COLOR_MAP
+                    },
                     labels={
                         "model_id": "Model ID",
                         "rubric_score": "Rubric Score",
@@ -1189,7 +1189,9 @@ def display_performance_plots(df: pd.DataFrame):
                         "count": "Number of Evaluations",
                         "rubric_score": "Rubric Score",
                     },
-                    color_discrete_map={k: COLOR_MAP[k] for k in rubric_score_order if k in COLOR_MAP},
+                    color_discrete_map={
+                        k: COLOR_MAP[k] for k in rubric_score_order if k in COLOR_MAP
+                    },
                     category_orders={"rubric_score": rubric_score_order},
                 )
                 fig.update_layout(xaxis_title=None)
@@ -1472,10 +1474,10 @@ def render_evaluation_progress(
                         """.format(
                             "<br>".join(
                                 line.replace("&", "&")
-                                    .replace("<", "<")
-                                    .replace(">", ">")
-                                    .replace(" ", "&nbsp;")
-                                    for line in last_10_logs
+                                .replace("<", "<")
+                                .replace(">", ">")
+                                .replace(" ", "&nbsp;")
+                                for line in last_10_logs
                             )
                         ),
                         unsafe_allow_html=True,
@@ -1499,7 +1501,7 @@ def render_evaluation_progress(
                 st.session_state.evaluation_running = False
                 st.session_state.last_run_output = current_output
                 st.session_state.evaluation_error = evaluation_error
-                st.experimental_rerun()
+                st.rerun()
                 break
                 # Update final duration display
                 if eval_start_time:
@@ -1538,7 +1540,7 @@ def render_evaluation_progress(
 if __name__ == "__main__":
     st.title("CogniBench Evaluation Tool")
     initialize_session_state()
-    tabs = st.tabs(["Run Evaluation", "View Results"])
+    tabs = st.tabs(["Run Evaluation", "View Results", "Logs", "Overview"])
     with tabs[0]:
         st.header("Run Evaluation")
         # 1. File upload
@@ -1579,4 +1581,68 @@ if __name__ == "__main__":
                 display_performance_plots(df)
                 display_results_table(df)
                 display_human_review_tasks(df)
-                display_human_review_tasks(df)
+    with tabs[2]:
+        st.header("Logs")
+        import os
+        from pathlib import Path
+
+        # Find the most recent log directory
+        logs_base = Path("logs")
+        log_dirs = [d for d in logs_base.iterdir() if d.is_dir()]
+        if log_dirs:
+            latest_log_dir = max(log_dirs, key=os.path.getmtime)
+            backend_log = latest_log_dir / "backend.log"
+            frontend_log = latest_log_dir / "frontend.log"
+            st.subheader(f"Backend Log ({backend_log})")
+            if backend_log.exists():
+                with open(backend_log, "r") as f:
+                    st.code(f.read(), language="text")
+            else:
+                st.info("No backend log found in the latest log directory.")
+            st.subheader(f"Frontend Log ({frontend_log})")
+            if frontend_log.exists():
+                with open(frontend_log, "r") as f:
+                    st.code(f.read(), language="text")
+            else:
+                st.info("No frontend log found in the latest log directory.")
+        else:
+            st.info("No logs available yet. Run an evaluation to see logs here.")
+    with tabs[3]:
+        import re
+
+        import streamlit.components.v1 as components
+
+        st.header("CogniBench Project Overview")
+        try:
+            with open("docs/overview.md", "r") as f:
+                overview_md = f.read()
+            # Extract mermaid diagram
+            mermaid_match = re.search(r"```mermaid\n(.*?)```", overview_md, re.DOTALL)
+            if mermaid_match:
+                mermaid_code = mermaid_match.group(1)
+                # Remove the mermaid block from the markdown
+                overview_md_no_mermaid = re.sub(
+                    r"```mermaid\n.*?```", "", overview_md, flags=re.DOTALL
+                )
+                st.markdown(overview_md_no_mermaid, unsafe_allow_html=True)
+                # Render the mermaid diagram using Mermaid.js in an HTML component
+                components.html(
+                    (
+                        "<div id='mermaid' class='mermaid'>"
+                        + mermaid_code +
+                        "</div>"
+                        "<script src='https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js'></script>"
+                        "<script>"
+                        "if (window.mermaid) {"
+                        "window.mermaid.initialize({startOnLoad: true});"
+                        "window.mermaid.init(undefined, document.querySelectorAll('.mermaid'));"
+                        "}"
+                        "</script>"
+                    ),
+                    height=500,
+                )
+            else:
+                st.markdown(overview_md, unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"Could not load overview.md: {e}")
+            st.error(f"Could not load overview.md: {e}")
