@@ -33,6 +33,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 import yaml
+
 from core.config import AppConfig
 
 # Import constants from the new core location
@@ -484,15 +485,39 @@ def evaluation_worker(
             "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
         )
         queue_handler.setFormatter(formatter)
-        queue_handler.setLevel(
-            logging.INFO
-        )  # FIX: Set handler level to filter logs sent to queue
-        root_logger = logging.getLogger()
-        root_logger.addHandler(queue_handler)
-        root_logger.setLevel(logging.INFO)  # Logger level still INFO
-        core_logger = logging.getLogger("core")
-        core_logger.addHandler(queue_handler)
-        core_logger.setLevel(logging.INFO)  # Logger level still INFO
+        queue_handler.setLevel(logging.INFO)
+
+        def attach_queue_handler():
+            # Attach the handler to root, "core", and "backend" loggers
+            root_logger = logging.getLogger()
+            if queue_handler not in root_logger.handlers:
+                root_logger.addHandler(queue_handler)
+            root_logger.setLevel(logging.INFO)
+            core_logger = logging.getLogger("core")
+            if queue_handler not in core_logger.handlers:
+                core_logger.addHandler(queue_handler)
+            core_logger.setLevel(logging.INFO)
+            backend_logger = logging.getLogger("backend")
+            if queue_handler not in backend_logger.handlers:
+                backend_logger.addHandler(queue_handler)
+            backend_logger.setLevel(logging.INFO)
+            return root_logger, core_logger, backend_logger
+
+        def attach_stream_handler():
+            # Attach a StreamHandler to the root logger for console output
+            root_logger = logging.getLogger()
+            # Check if a StreamHandler is already present
+            has_stream = any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers)
+            if not has_stream:
+                stream_handler = logging.StreamHandler()
+                stream_handler.setFormatter(formatter)
+                stream_handler.setLevel(logging.INFO)
+                root_logger.addHandler(stream_handler)
+            return root_logger
+
+        root_logger, core_logger, backend_logger = attach_queue_handler()
+        root_logger = attach_stream_handler()
+
         output_queue.put("STATUS: Starting evaluation...")
         logger.info("Evaluation worker thread started.")
         output_queue.put("INFO: Evaluation worker thread started.")
@@ -508,6 +533,10 @@ def evaluation_worker(
             )
 
         results_paths = asyncio.run(run_async_wrapper())
+
+        # Ensure QueueLogHandler is attached after any logging setup in core
+        root_logger, core_logger, backend_logger = attach_queue_handler()
+        root_logger = attach_stream_handler()
 
         if stop_event.is_set():
             output_queue.put("STATUS: Evaluation stopped by user.")
@@ -530,6 +559,7 @@ def evaluation_worker(
         logger.info("Evaluation worker thread finished.")
         root_logger.removeHandler(queue_handler)
         core_logger.removeHandler(queue_handler)
+        backend_logger.removeHandler(queue_handler)
 
 
 # --- Control Functions ---
@@ -843,8 +873,16 @@ def display_summary_stats(original_summary: Optional[Dict[str, Any]]):
         st.markdown("**Overall Evaluation Summary:**")
         orig_lines = []
         # Always show structuring and judging model at the top
-        structuring_model = orig_summary.get("structuring_model") or original_summary.get("structuring_model") or "N/A"
-        judging_model = orig_summary.get("judging_model") or original_summary.get("judging_model") or "N/A"
+        structuring_model = (
+            orig_summary.get("structuring_model")
+            or original_summary.get("structuring_model")
+            or "N/A"
+        )
+        judging_model = (
+            orig_summary.get("judging_model")
+            or original_summary.get("judging_model")
+            or "N/A"
+        )
         orig_lines.append(f"- **Structuring Model:** {structuring_model}")
         orig_lines.append(f"- **Reasoning Model:** {judging_model}")
         for k, v in orig_summary.items():
@@ -941,12 +979,23 @@ def display_performance_plots(df: pd.DataFrame):
 
     # Overall Performance Distribution
     try:
-        score_order = ["Pass", "Partial", "Fail", "N/A"]
-        # Ensure all possible scores are in the counts, even if 0
+        # Dynamically determine present, non-empty, non-null scores
+        present_scores = (
+            df["aggregated_score"]
+            .dropna()
+            .astype(str)
+            .replace("", pd.NA)
+            .dropna()
+            .unique()
+            .tolist()
+        )
         performance_counts = (
             df["aggregated_score"]
+            .dropna()
+            .astype(str)
+            .replace("", pd.NA)
+            .dropna()
             .value_counts()
-            .reindex(score_order, fill_value=0)
             .reset_index()
         )
         performance_counts.columns = ["score", "count"]
@@ -957,7 +1006,7 @@ def display_performance_plots(df: pd.DataFrame):
             y="count",
             title=chart_title,
             color="score",
-            color_discrete_map=COLOR_MAP,
+            color_discrete_map={k: COLOR_MAP[k] for k in present_scores if k in COLOR_MAP},
             labels={"score": "Aggregated Score", "count": "Number of Evaluations"},
         )
         fig_perf.update_layout(xaxis_title=None)
@@ -973,25 +1022,28 @@ def display_performance_plots(df: pd.DataFrame):
     if "model_id" in df.columns:
         try:
             # Group by model_id and count occurrences of each aggregated_score
+            # Exclude None/empty values
+            filtered_df = df[
+                df["aggregated_score"].notna() & (df["aggregated_score"].astype(str) != "")
+            ]
             rubric_model_counts = (
-                df.groupby("model_id")["aggregated_score"]
+                filtered_df.groupby("model_id")["aggregated_score"]
                 .value_counts()
                 .unstack(fill_value=0)
                 .reset_index()
             )
-            # Ensure all possible scores are in the columns, fill missing with 0
-            # Use actual unique scores in the data for the columns
+            # Only use present scores
             score_order = [
                 col for col in rubric_model_counts.columns if col != "model_id"
             ]
-            # Optionally, sort by frequency or a preferred order
-            # score_order = sorted(score_order, key=lambda x: -rubric_model_counts[x].sum())
             rubric_model_melted = rubric_model_counts.melt(
                 id_vars="model_id",
                 value_vars=score_order,
                 var_name="score",
                 value_name="count",
             )
+            # Remove zero-count rows
+            rubric_model_melted = rubric_model_melted[rubric_model_melted["count"] > 0]
             chart_title = "Performance Distribution by Model"
             fig_rubric_model = px.bar(
                 rubric_model_melted,
@@ -1000,7 +1052,7 @@ def display_performance_plots(df: pd.DataFrame):
                 color="score",
                 title=chart_title,
                 barmode="group",
-                color_discrete_map=COLOR_MAP,
+                color_discrete_map={k: COLOR_MAP[k] for k in score_order if k in COLOR_MAP},
                 labels={
                     "model_id": "Model ID",
                     "count": "Number of Evaluations",
@@ -1057,29 +1109,35 @@ def display_performance_plots(df: pd.DataFrame):
                     )
             rubric_long_df = pd.DataFrame(rubric_long)
             rubric_score_order = (
-                rubric_long_df["rubric_score"].dropna().unique().tolist()
+                rubric_long_df["rubric_score"]
+                .dropna()
+                .astype(str)
+                .replace("", pd.NA)
+                .dropna()
+                .unique()
+                .tolist()
             )
 
             if selected_rubric == "All Rubrics":
-                # Ensure all model/rubric/rubric_score combinations are present
-                all_models = sorted(df["model_id"].dropna().unique())
-                all_rubrics = sorted(rubric_long_df["rubric"].dropna().unique())
-                all_scores = sorted(rubric_long_df["rubric_score"].dropna().unique())
-                import itertools
-
-                all_combos = pd.DataFrame(
-                    list(itertools.product(all_models, all_rubrics, all_scores)),
-                    columns=["model_id", "rubric", "rubric_score"],
+                # Only use present, non-empty, non-null models, rubrics, and scores
+                all_models = sorted(
+                    rubric_long_df["model_id"].dropna().astype(str).replace("", pd.NA).dropna().unique()
                 )
-                merged = pd.merge(
-                    all_combos,
+                all_rubrics = sorted(
+                    rubric_long_df["rubric"].dropna().astype(str).replace("", pd.NA).dropna().unique()
+                )
+                all_scores = sorted(
+                    rubric_long_df["rubric_score"].dropna().astype(str).replace("", pd.NA).dropna().unique()
+                )
+
+                # Group and count only present combinations
+                merged = (
                     rubric_long_df.groupby(["model_id", "rubric", "rubric_score"])
                     .size()
-                    .reset_index(name="count"),
-                    on=["model_id", "rubric", "rubric_score"],
-                    how="left",
-                ).fillna({"count": 0})
-                merged["count"] = merged["count"].astype(int)
+                    .reset_index(name="count")
+                )
+                # Remove zero-count rows (shouldn't be any, but for safety)
+                merged = merged[merged["count"] > 0]
                 fig = px.bar(
                     merged,
                     x="model_id",
@@ -1092,7 +1150,7 @@ def display_performance_plots(df: pd.DataFrame):
                         "rubric": all_rubrics,
                         "rubric_score": all_scores,
                     },
-                    color_discrete_map=COLOR_MAP,
+                    color_discrete_map={k: COLOR_MAP[k] for k in all_scores if k in COLOR_MAP},
                     labels={
                         "model_id": "Model ID",
                         "rubric_score": "Rubric Score",
@@ -1107,12 +1165,18 @@ def display_performance_plots(df: pd.DataFrame):
                 fig.update_layout(xaxis_title=None, height=300)
                 st.plotly_chart(fig, use_container_width=True)
             else:
-                rubric_df = rubric_long_df[rubric_long_df["rubric"] == selected_rubric]
+                rubric_df = rubric_long_df[
+                    (rubric_long_df["rubric"] == selected_rubric)
+                    & rubric_long_df["rubric_score"].notna()
+                    & (rubric_long_df["rubric_score"].astype(str) != "")
+                ]
                 rubric_counts = (
                     rubric_df.groupby(["model_id", "rubric_score"])
                     .size()
                     .reset_index(name="count")
                 )
+                # Remove zero-count rows
+                rubric_counts = rubric_counts[rubric_counts["count"] > 0]
                 fig = px.bar(
                     rubric_counts,
                     x="model_id",
@@ -1125,7 +1189,7 @@ def display_performance_plots(df: pd.DataFrame):
                         "count": "Number of Evaluations",
                         "rubric_score": "Rubric Score",
                     },
-                    color_discrete_map=COLOR_MAP,
+                    color_discrete_map={k: COLOR_MAP[k] for k in rubric_score_order if k in COLOR_MAP},
                     category_orders={"rubric_score": rubric_score_order},
                 )
                 fig.update_layout(xaxis_title=None)
@@ -1143,6 +1207,7 @@ def display_results_table(df: pd.DataFrame):
     if df is None or df.empty:
         st.warning("No detailed results data available.")
         return
+
 
 def render_evaluation_progress(
     output_queue: queue.Queue,
@@ -1170,9 +1235,8 @@ def render_evaluation_progress(
         duration_placeholder.text(f"Duration: {duration_str}")
 
     # Show status if evaluation is not running
-    if (
-        not st.session_state.get("evaluation_running", False)
-        and st.session_state.get("evaluation_error")
+    if not st.session_state.get("evaluation_running", False) and st.session_state.get(
+        "evaluation_error"
     ):
         status_placeholder.error(st.session_state["evaluation_error"])
     elif not st.session_state.get("evaluation_running", False):
@@ -1263,7 +1327,7 @@ def render_evaluation_progress(
             filtered_df[cols_to_display],
             use_container_width=True,
             hide_index=True,
-            height=400
+            height=400,
         )
 
         # Add a button to view full details of a selected task/model combination
@@ -1350,13 +1414,18 @@ def render_evaluation_progress(
 
     status_placeholder = st.empty()
     # Log output in an expander, open when running, closed when not
-    expander_state = bool(
-        st.session_state.get("evaluation_running", False)
-        or (
-            st.session_state.get("last_run_output")
-            and len(st.session_state.get("last_run_output")) > 0
+    # Collapse the expander if execution is over
+    worker_thread = getattr(st.session_state, "worker_thread", None)
+    if worker_thread and not worker_thread.is_alive():
+        expander_state = False
+    else:
+        expander_state = bool(
+            st.session_state.get("evaluation_running", False)
+            or (
+                st.session_state.get("last_run_output")
+                and len(st.session_state.get("last_run_output")) > 0
+            )
         )
-    )
     with st.expander("Logs", expanded=expander_state):
         output_area = st.empty()  # Place output area inside the expander
 
@@ -1389,8 +1458,28 @@ def render_evaluation_progress(
                         status_placeholder.error("Error processing results paths.")
                     logger.info(f"Received results paths from queue: {results_paths}")
                 else:
-                    current_output.append(line)
-                output_area.code("\n".join(current_output), language="text")
+                    # Only display INFO level logs in the UI
+                    if line.startswith("INFO:"):
+                        current_output.append(line)
+                # Show only the last 10 log lines in a fixed-height, scrollable container
+                last_10_logs = current_output[-10:]
+                log_text = "\n".join(last_10_logs)
+                with output_area.container():
+                    st.markdown(
+                        """
+                        <div style="height: 240px; overflow-y: auto; background-color: #0e1117; color: #fafafa; font-family: monospace; padding: 8px; border-radius: 6px; border: 1px solid #333;">
+                        {}</div>
+                        """.format(
+                            "<br>".join(
+                                line.replace("&", "&")
+                                    .replace("<", "<")
+                                    .replace(">", ">")
+                                    .replace(" ", "&nbsp;")
+                                    for line in last_10_logs
+                            )
+                        ),
+                        unsafe_allow_html=True,
+                    )
 
             except queue.Empty:
                 pass  # No new output
@@ -1410,6 +1499,8 @@ def render_evaluation_progress(
                 st.session_state.evaluation_running = False
                 st.session_state.last_run_output = current_output
                 st.session_state.evaluation_error = evaluation_error
+                st.experimental_rerun()
+                break
                 # Update final duration display
                 if eval_start_time:
                     duration = int(time.time() - eval_start_time)
@@ -1438,27 +1529,13 @@ def render_evaluation_progress(
                 st.rerun()  # Trigger rerun to update UI with final status and results
                 break  # Exit the loop
 
-<<<<<<< HEAD
-# --- Main Application ---
-def main() -> None:
-    """Main function to run the Streamlit application."""
-    initialize_session_state()
-    st.title("CogniBench Evaluation Runner")
-=======
             time.sleep(0.1)  # Small delay to prevent excessive CPU usage
->>>>>>> 85a36ec (Remove log viewer from UI, fix evaluation summary, and ensure structuring/judging models are included in results summary)
 
 
 # (Removed old sidebar navigation block. Only the new tab-based main block remains.)
 
 # --- Main App Entry Point with Tabs ---
 if __name__ == "__main__":
-<<<<<<< HEAD
-    main()
-    logger.debug("Streamlit main function finished.")
-    main()
-    logger.debug("Streamlit main function finished.")
-=======
     st.title("CogniBench Evaluation Tool")
     initialize_session_state()
     tabs = st.tabs(["Run Evaluation", "View Results"])
@@ -1502,4 +1579,4 @@ if __name__ == "__main__":
                 display_performance_plots(df)
                 display_results_table(df)
                 display_human_review_tasks(df)
->>>>>>> 85a36ec (Remove log viewer from UI, fix evaluation summary, and ensure structuring/judging models are included in results summary)
+                display_human_review_tasks(df)
