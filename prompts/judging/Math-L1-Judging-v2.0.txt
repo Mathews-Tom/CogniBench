@@ -1,3 +1,5 @@
+# 📦 **Judging Prompt**
+
 You are tasked with evaluating structured mathematical responses based on a provided rubric. You will receive the following inputs:
 
 - "prompt": The original mathematical problem statement.
@@ -7,10 +9,10 @@ You are tasked with evaluating structured mathematical responses based on a prov
 
 Evaluate the structured model response against the structured ideal response and correct answer using the following rubric criteria:
 
-1. **Problem Understanding**: The model's ability to correctly comprehend the problem, including the objective (what is being asked), any stated constraints or conditions, and the given data or context? (Yes/No)
+1. **Problem Understanding**: The model's ability to correctly comprehend the problem, including the objective (what is being asked), any stated constraints or conditions? (Yes/No)
    - Justification:
 
-2. **Assumptions**: Are the assumptions (both explicit and implicit) invoked by the model in it's efforts to solve the problem correct? (Yes/No)
+2. **Assumptions**: Are the assumptions (both explicit and implicit) invoked by the model in its efforts to solve the problem correct? (Yes/No)
    - Justification:
 
 3. **Mathematical Reasoning**: Did the model choose appropriate methods and apply them correctly (theorems/lemmas, axiomatic usage, results referenced and deductive step validity)? (Yes/No)
@@ -24,30 +26,100 @@ Evaluate the structured model response against the structured ideal response and
 
 Provide your evaluation strictly in the following JSON format:
 
+```json
 {{
   "evaluation": {{
     "problem_understanding": {{"score": "Yes/No", "justification": "..."}},
     "assumptions": {{"score": "Yes/No", "justification": "..."}},
-    "logical_implications": {{"score": "Yes/No", "justification": "..."}},
+    "mathematical_reasoning": {{"score": "Yes/No", "justification": "..."}},
     "results_formulae": {{"score": "Yes/No", "justification": "..."}},
     "rigor_and_completeness": {{"score": "Yes/No", "justification": "..."}}
   }}
 }}
+````
 
-Ensure the JSON is valid and properly formatted.
+---
 
-Input Data:
+## ✅ Example Input:
 
-PROMPT:
-{prompt}
+**PROMPT:**
+Find the next number of the sequence 9,5,6,10.5,23.
 
-STRUCTURED MODEL RESPONSE:
-{structured_model_response}
+**STRUCTURED MODEL RESPONSE:**
 
-STRUCTURED IDEAL RESPONSE:
-{structured_ideal_response}
+```json
+{{
+  "assumptions": "Assumes a fourth-degree polynomial pattern with constant 4th differences.",
+  "steps": [
+    "Step 1: List known terms T(1)=9, T(2)=5, T(3)=6, T(4)=10.5, T(5)=23",
+    "Step 2: Compute successive differences (1st to 4th)",
+    "Step 3: Note that 4th difference is constant at 6",
+    "Step 4: Extrapolate next 4th diff = 6",
+    "Step 5: Compute upward through 3rd, 2nd, and 1st differences to get next term"
+  ],
+  "intermediate_results": ["4th difference = 6", "Next 3rd diff = 10.5", "Next 2nd diff = 18.5", "Next 1st diff = 31"],
+  "final_answer": "54",
+  "format_notes": "Answer appears at the end as plain text"
+}}
+```
 
-CORRECT ANSWER:
-{correct_answer}
+**STRUCTURED IDEAL RESPONSE:**
 
-Evaluation Output (JSON only):
+```json
+{{
+  "assumptions": "Assumes the pattern is formed by multiplying by increasing 0.5 increments and adding same",
+  "steps": [
+    "Step 1: Observe pattern in each transition: x -> x * k + k",
+    "Step 2: Compute k values: 0.5, 1, 1.5, 2",
+    "Step 3: Predict next k = 2.5 and apply to 23",
+    "Step 4: Compute next term: 23 * 2.5 + 2.5 = 60"
+  ],
+  "intermediate_results": ["k values: 0.5, 1, 1.5, 2", "23 * 2.5 + 2.5 = 60"],
+  "final_answer": "60",
+  "format_notes": "Final answer is boxed using LaTeX"
+}}
+```
+
+**CORRECT ANSWER:**
+60
+
+---
+
+## ✅ Example Output:
+
+```json
+{{
+  "evaluation": {{
+    "problem_understanding": {{
+      "score": "Yes",
+      "justification": "The model understood that the task was to find the next number in the sequence."
+    }},
+    "assumptions": {{
+      "score": "No",
+      "justification": "The assumption of a 4th-degree polynomial is unjustified based on the problem context."
+    }},
+    "mathematical_reasoning": {{
+      "score": "No",
+      "justification": "While consistent within its method, the chosen approach was not appropriate for the pattern type."
+    }},
+    "results_formulae": {{
+      "score": "Yes",
+      "justification": "The difference computations and extrapolation steps were mathematically accurate."
+    }},
+    "rigor_and_completeness": {{
+      "score": "Yes",
+      "justification": "The reasoning was detailed and step-by-step, even if built on an incorrect premise."
+    }}
+  }}
+}}
+```
+
+---
+
+## ⚠️ Instructions:
+
+* Use only “Yes” or “No” for each score.
+* Justify your decision based on the content of both structured responses and the prompt.
+* Do not add extra categories or fields.
+* Return only a **valid JSON object** in the specified format.
+* Do not include any explanation outside the JSON structure.
